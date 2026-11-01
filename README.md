@@ -51,4 +51,5 @@
 | [`docs/known-observations.md`](docs/known-observations.md) | ملاحظات رقابية وحالتها |
 | [`docs/improvement-plan.md`](docs/improvement-plan.md) | تقرير الفحص العميق وخطة التحسين المرحلية |
 | [`docs/decisions/`](docs/decisions/) | سجل القرارات المعمارية (ADR) |
+| [`SECURITY.md`](SECURITY.md) | سياسة الأمان والإبلاغ عن الثغرات والضوابط الرقابية |
 | [`CHANGELOG.md`](CHANGELOG.md) | سجل التغييرات |
