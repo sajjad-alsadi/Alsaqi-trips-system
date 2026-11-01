@@ -1,0 +1,12 @@
+{
+  "name": "alsaqi-trips-system",
+  "version": "0.0.0",
+  "private": true,
+  "description": "نظام الساقي لإدارة الإيفادات: اختبارات المحرك والمخرجات (لا تعتمد على أي مكتبة خارجية)",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
