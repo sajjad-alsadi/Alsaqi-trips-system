@@ -48,6 +48,7 @@
 | طباعة «قائمة مصاريف السفر» مع التفقيط | `buildPrintForm`، `printTripLists`، `amountInWords` |
 | التحديث بعد الكتابة | `applyPatch`، `afterWrite`، `loadDashboardData` |
 | كشف نسخة الخادم القديمة | `EXPECTED_SERVER_VERSION` في `loadDashboardData` |
+| تقادم السلف المتأخرة (للموارد البشرية) | `advanceAging`، `overdueAdvances`، `ADVANCE_SETTLE_DAYS`؛ التنبيه في `renderAlerts`، والمرشح `adv-overdue` في `listMatches`، والشارة في `updateBadges` |
 
 واجهة الدخول: إن لم يُعرَّف بريد المستخدم، يعيد `getDashboardData` الحقل `unauthorized` مع تلميح، وتعرض الواجهة شاشة المنع (`showDenied`).
 

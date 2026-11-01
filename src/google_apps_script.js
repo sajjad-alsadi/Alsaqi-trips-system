@@ -4,7 +4,7 @@
 // ==========================================
 
 // رقم إصدار الخادم: تعرضه الواجهة للتنبيه إذا كانت النسخة المنشورة قديمة
-const APP_VERSION = '2026-10-31-no-setup-mode';
+const APP_VERSION = '2026-11-01-separation-of-duties';
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -30,7 +30,7 @@ const VIOLATION_TYPES = ['مبلغ غير صحيح', 'مخالفة لأحد ال
 
 const TRIP_HEADERS = ['رقم الإيفاد', 'تاريخ الذهاب', 'تاريخ العودة', 'جهة الانطلاق', 'الوجهات', 'نوع العجلة', 'إجمالي النقل', 'أجور المبيت', 'حالة الطلب', 'تاريخ الإدخال',
   'تاريخ التدقيق', 'المدقق', 'ملاحظات التدقيق',
-  'نوع الإيفاد', 'الدولة', 'غرض الإيفاد', 'تاريخ الأمر', 'عدد الأيام', 'عدد الليالي', 'مسار المحافظات', 'نوع المبيت', 'إيفاد ثانٍ', 'المُدخِل', 'الإصدار',
+  'نوع الإيفاد', 'الدولة', 'غرض الإيفاد', 'تاريخ الأمر', 'عدد الأيام', 'عدد الليالي', 'مسار المحافظات', 'نوع المبيت', 'إيفاد ثانٍ', 'المُدخِل', 'مُدخِل النسخة الحالية', 'الإصدار',
   'مصادقة المالية', 'تاريخ مصادقة المالية', 'ملاحظات المالية',
   'نوع المخالفة', 'سبب الإعادة', 'أُعيد بواسطة', 'تاريخ الإعادة', 'يحتاج اعتماد النقل', 'المدخلات', 'أساس الاحتساب',
   'نوع مخالفة الإحالة', 'سبب الإحالة', 'أُحيل بواسطة', 'تاريخ الإحالة', 'سبب الحذف', 'حُذف بواسطة', 'تاريخ الحذف'];
@@ -241,6 +241,18 @@ function requireRole_(role, label) {
 }
 function roleLabel_(u) {
   return u.roles.join('،');
+}
+
+// فصل المهام (قرار المالك، بلا استثناء) لكل نسخة من الإيفاد ولكل بند موفد:
+//   المُدخِل (أو المعدِّل) ≠ مصادق المالية ≠ المدقق ≠ المُدخِل، والصارف ≠ المُدخِل و≠ المدقق (ويجوز أن يكون مصادق المالية).
+// المُدخِل هو «مُدخِل النسخة الحالية»، فإن غاب (إيفاد قبل هذا الضابط) فالمُدخِل الأصلي؛ وإن غابا معاً تعذّر التحقق منه.
+function assertSeparation_(step, trip, emp, u) {
+  const me = String(u.email || '').trim().toLowerCase();
+  const is = function (v) { return me !== '' && String(v || '').trim().toLowerCase() === me; };
+  const verb = { finance: 'يصادق عليه مالياً', audit: 'يصادق عليه رقابياً', pay: 'يصرفه' }[step];
+  if (is(trip['مُدخِل النسخة الحالية'] || trip['المُدخِل'])) throw new Error('لا يجوز لمن أدخل الإيفاد أو عدّله أن ' + verb + ' (فصل المهام).');
+  if (step === 'audit' && is(emp['مصادقة المالية'])) throw new Error('لا يجوز لمن صادق عليه مالياً أن ' + verb + ' (فصل المهام).');
+  if ((step === 'finance' || step === 'pay') && is(emp['المدقق'])) throw new Error('لا يجوز لمن صادق عليه رقابياً أن ' + verb + ' (فصل المهام).');
 }
 
 // تعريف أول مسؤول: تُشغَّل يدوياً من محرر Apps Script (تشغيل ← setupFirstAdmin) مرة واحدة حين يكون شيت "المستخدمون" فارغاً.
@@ -470,7 +482,7 @@ function saveTripData(formData) {
     if (findTrip_(readRows_(tripsSh), safeText_(formData.tripId, 60))) throw new Error('رقم الإيفاد مسجل مسبقاً: ' + safeText_(formData.tripId, 60));
     const p = prepareTrip_(formData, '');
     const f = tripFields_(p, u);
-    f['حالة الطلب'] = ST.FIN; f['تاريخ الإدخال'] = new Date(); f['المُدخِل'] = u.email; f['الإصدار'] = 1;
+    f['حالة الطلب'] = ST.FIN; f['تاريخ الإدخال'] = new Date(); f['المُدخِل'] = u.email; f['مُدخِل النسخة الحالية'] = u.email; f['الإصدار'] = 1;
     appendRow_(tripsSh, f);
     p.calc.employees.forEach(function (e) {
       const row = empFields_(p.inp.tripId, e);
@@ -556,7 +568,7 @@ function updateTrip(tripId, formData, reason) {
     });
 
     const f = tripFields_(p, u);
-    f['حالة الطلب'] = ST.FIN; f['الإصدار'] = (Number(trip['الإصدار']) || 1) + 1;
+    f['حالة الطلب'] = ST.FIN; f['مُدخِل النسخة الحالية'] = u.email; f['الإصدار'] = (Number(trip['الإصدار']) || 1) + 1;
     updateRow_(tripsSh, trip.__row, f);
     const after = summary_(Object.assign({}, trip, f), tripEmps_(readTripRows_(empSh, tripId).rows, tripId));
     appendLog_(u, tripId, 'تعديل بعد الإعادة', { reason: why, before: before, after: after });
@@ -630,6 +642,7 @@ function financeEndorse(tripId, empName, notes) {
     const empSh = sheet_(SHEETS.emps, EMP_HEADERS);
     const E = loadEmp_(empSh, tripId, empName, L.status);
     if (E.stage !== ST.FIN && E.stage !== ST.RET_FIN) throw new Error('لا يمكن مصادقة المالية لموفد حالته: ' + E.stage);
+    assertSeparation_('finance', L.trip, E.row, u);
     updateRow_(empSh, E.row.__row, { 'حالة الموفد': ST.AUD, 'مصادقة المالية': u.email, 'تاريخ مصادقة المالية': new Date(), 'ملاحظات المالية': safeText_(notes) });
     syncTripStatus_(tripId);
     appendLog_(u, tripId, 'مصادقة المالية', { employee: E.row['اسم الموظف'], notes: safeText_(notes) });
@@ -645,6 +658,7 @@ function auditApprove(tripId, empName, notes) {
     const empSh = sheet_(SHEETS.emps, EMP_HEADERS);
     const E = loadEmp_(empSh, tripId, empName, L.status);
     if (E.stage !== ST.AUD) throw new Error('لا يمكن مصادقة الرقابة لموفد حالته: ' + E.stage);
+    assertSeparation_('audit', L.trip, E.row, u);
     updateRow_(empSh, E.row.__row, { 'حالة الموفد': ST.PAY, 'تاريخ التدقيق': new Date(), 'المدقق': u.email, 'ملاحظات التدقيق': safeText_(notes) });
     completeEmpIfSettled_(empSh, tripId, E.row['اسم الموظف']);   // لا شيء يُصرف إن كان مصروفاً كاملاً أصلاً (مثلاً بعد تعديل لم يغيّر مبلغه)
     syncTripStatus_(tripId);
@@ -770,6 +784,7 @@ function payEmployee(tripId, empName, voucherNo, earlyApproval) {
     const empSh = sheet_(SHEETS.emps, EMP_HEADERS);
     const E = loadEmp_(empSh, tripId, empName, L.status);
     if (E.stage !== ST.PAY) throw new Error('لا يُصرف قبل مصادقة الرقابة لهذا الموفد. حالته الحالية: ' + E.stage);
+    assertSeparation_('pay', L.trip, E.row, u);
     const e = E.row;
     const v = voucher_(voucherNo, 'رقم قيد الصرف');
     const remaining = remainingOf_(e);
@@ -797,6 +812,7 @@ function payAdvance(tripId, empName, voucherNo) {
     const empSh = sheet_(SHEETS.emps, EMP_HEADERS);
     const E = loadEmp_(empSh, tripId, empName, L.status);
     if (E.stage !== ST.PAY) throw new Error('لا تُصرف السلفة قبل مصادقة الرقابة لهذا الموفد. حالته الحالية: ' + E.stage);
+    assertSeparation_('pay', L.trip, E.row, u);
     const e = E.row;
     const v = voucher_(voucherNo, 'رقم قيد الصرف');
     if (!((Number(e['السلفة']) || 0) > 0) || String(e['حالة السلفة']) !== 'بانتظار الصرف') throw new Error('لا توجد سلفة بانتظار الصرف لهذا الموفد.');

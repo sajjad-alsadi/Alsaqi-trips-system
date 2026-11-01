@@ -1043,6 +1043,7 @@ legend { padding: 0; }
                             <button type="button" aria-pressed="true" data-status="all">الكل</button>
                             <button type="button" aria-pressed="false" data-status="returned-hr">معاد للتصحيح</button>
                             <button type="button" aria-pressed="false" data-status="progress">قيد المراجعة والصرف</button>
+                            <button type="button" aria-pressed="false" data-status="adv-overdue">سلف متأخرة</button>
                             <button type="button" aria-pressed="false" data-status="done">تم الصرف</button>
                         </div>
                     </div>
@@ -1479,7 +1480,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const ST_ = { FIN: 'بانتظار مصادقة المالية', AUD: 'بانتظار مصادقة الرقابة', PAY: 'بانتظار الصرف', DONE: 'تم الصرف', RET_HR: 'معاد إلى الموارد البشرية', RET_FIN: 'معاد إلى المالية', ADMIN: 'محال إلى المسؤول' };
 
 // نسخة الخادم (APP_VERSION في Code.gs) التي صُمّمت هذه الواجهة عليها: عند أي إصدار جديد يُحدَّث الثابتان معاً
-const EXPECTED_SERVER_VERSION = '2026-10-31-no-setup-mode';
+const EXPECTED_SERVER_VERSION = '2026-11-01-separation-of-duties';
 const STATE = {
     trips: [], employees: [], adjustments: [], log: [], rates: [], violationTypes: [], session: null, version: '',
     loaded: false, reqId: 0, period: 'all', chartMode: 'amount',
@@ -1551,6 +1552,8 @@ const remainingOf = e => Math.max(0, empTotal(e) - paidOf(e));
 const advanceOf = e => Number(e['السلفة']) || 0;
 const advanceOpen = e => advanceOf(e) > 0 && String(e['حالة السلفة']) === 'بانتظار الصرف';
 const advanceSettleable = e => advanceOf(e) > 0 && String(e['حالة السلفة']) === 'مصروفة';
+// مهلة تسوية السلفة (قرار المالك): 10 أيام بعد تاريخ العودة؛ ما تجاوزها تتابعه الموارد البشرية
+const ADVANCE_SETTLE_DAYS = 10;
 
 // حالة الموفد داخل الإيفاد (يعيدها الخادم دائماً مُستنتَجة حتى للبيانات القديمة)
 const stageOf = e => String(e['حالة الموفد'] || '');
@@ -2103,6 +2106,23 @@ function renderAll() {
 }
 
 // ---------------------------------------------------------------- بنود الصرف
+// عمر سلفة مصروفة غير مسوّاة بالأيام منذ تاريخ العودة (بالتاريخ دون الوقت)؛ null إن لم تكن سلفة مفتوحة أو لا تاريخ عودة
+function advanceAging(trip, emp, nowP) {
+    if (!advanceSettleable(emp)) return null;
+    const end = parseLocal_(trip['تاريخ العودة']), now = nowP || parseLocal_(isoLocal(new Date()));
+    if (!end || !now) return null;
+    const days = dayNum_(now) - dayNum_(end);
+    return { days: days, overdueBy: Math.max(0, days - ADVANCE_SETTLE_DAYS), overdue: days > ADVANCE_SETTLE_DAYS };
+}
+// السلف المتأخرة التسوية مرتبة من الأشد تأخراً
+function overdueAdvances(trips, byTrip, nowP) {
+    const out = [], now = nowP || parseLocal_(isoLocal(new Date()));
+    trips.forEach(t => empsOf(byTrip, t).forEach(e => {
+        const a = advanceAging(t, e, now);
+        if (a && a.overdue) out.push({ trip: t, emp: e, amount: advanceOf(e), days: a.days, overdueBy: a.overdueBy });
+    }));
+    return out.sort((x, y) => y.overdueBy - x.overdueBy);
+}
 function endInFuture(trip) {
     const e = parseLocal_(trip['تاريخ العودة']), n = parseLocal_(isoLocal(new Date()));
     return !!(e && n && minutesOf_(e) > minutesOf_(n));
@@ -2128,7 +2148,7 @@ function payLines() {
 function updateBadges() {
     const set = (id, n) => { const b = $(id); b.textContent = n; b.classList.toggle('hidden', n === 0); };
     const n = st => STATE.employees.filter(e => stageOf(e) === st).length;   // العدّ بالموفدين لأن المصادقة والصرف لكل موفد على حدة
-    set('navHrBadge', n(ST_.RET_HR));
+    set('navHrBadge', n(ST_.RET_HR) + (can('hr') ? overdueAdvances(STATE.trips, STATE.byTrip).length : 0));   // المعاد للتصحيح + السلف المتأخرة التسوية
     set('navFinanceBadge', n(ST_.FIN) + n(ST_.RET_FIN) + payLines().filter(l => l.kind !== 'تسوية سلفة').length);
     set('navAuditBadge', n(ST_.AUD));
 }
@@ -2519,6 +2539,10 @@ function renderAlerts() {
     if (held.length) items.push(['i-scale', held.length + ' إيفاد محال إلى المسؤول بانتظار القرار', () => { setListStatus('audit', 'held'); goTab('audit-tab'); }]);
     const ret = STATE.trips.filter(t => statusKind(t['حالة الطلب']) === 'returned');
     if (ret.length) items.push(['i-undo', ret.length + ' إيفاد معاد للتصحيح', () => { setListStatus('audit', 'returned'); goTab('audit-tab'); }]);
+    if (can('hr')) {
+        const late = overdueAdvances(STATE.trips, STATE.byTrip);
+        if (late.length) items.push(['i-alert', late.length + ' سلفة متأخرة التسوية (أكثر من ' + ADVANCE_SETTLE_DAYS + ' أيام بعد العودة): تحتاج متابعة', () => { setListStatus('hr', 'adv-overdue'); goTab('hrlist-tab'); }]);
+    }
     const openAdj = STATE.adjustments.filter(a => a['الحالة'] === 'مفتوحة');
     if (openAdj.length) {
         const rec = openAdj.filter(a => a['النوع'] === 'استرداد');
@@ -2559,6 +2583,7 @@ function listMatches(key, t) {
     if (key === 'audit') return f === kind;
     // الموارد البشرية
     if (f === 'returned-hr') return s === ST_.RET_HR;
+    if (f === 'adv-overdue') return empsOf(STATE.byTrip, t).some(e => { const a = advanceAging(t, e); return !!(a && a.overdue); });
     if (f === 'progress') return kind !== 'done' && s !== ST_.RET_HR;
     return f === kind;
 }
@@ -2656,6 +2681,8 @@ function tripRowEl(t, byTrip) {
     emps.forEach(e => {
         const line = el('div', 'emp-line');
         line.appendChild(el('span', '', e['اسم الموظف']));
+        const age = advanceAging(t, e);
+        if (age && age.overdue) line.appendChild(el('span', 'tag tag--warn', 'سلفة متأخرة ' + age.overdueBy + ' يوماً'));
         line.appendChild(el('span', 'num', fmtNum(empTotal(e))));
         namesBox.appendChild(line);
     });
@@ -2834,6 +2861,8 @@ function renderFinPay() {
                 tr.appendChild(makeCell(l.emp['اسم الموظف'], 'cell-strong', 'اسم الموظف'));
                 const kind = makeCell(l.kind, '', 'نوع البند');
                 if (l.kind === 'مخصصات' && endInFuture(l.trip)) kind.appendChild(el('span', 'tag tag--warn', 'قبل الرجوع'));
+                const age = l.kind === 'تسوية سلفة' ? advanceAging(l.trip, l.emp) : null;
+                if (age && age.overdue) kind.appendChild(el('span', 'tag tag--warn', 'متأخرة ' + age.overdueBy + ' يوماً'));
                 tr.appendChild(kind);
                 tr.appendChild(makeCell(fmtIQD(l.amount), 'num cell-money', 'المبلغ'));
                 const action = makeCell('', 'cell-actions');

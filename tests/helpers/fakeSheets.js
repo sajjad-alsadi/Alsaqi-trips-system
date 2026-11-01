@@ -43,10 +43,17 @@ function makeEnv(opts, names) {
     };
     const S = loadServer(names, {
         SpreadsheetApp: { getActiveSpreadsheet: () => ss },
-        Session: { getActiveUser: () => ({ getEmail: () => session.email }) },
-        LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }
+        Session: { getActiveUser: () => ({ getEmail: () => session.email }), getScriptTimeZone: () => 'Asia/Baghdad' },
+        LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+        // الشيفرة لا تستعمل غير الصيغة yyyy-MM-dd'T'HH:mm؛ يُكتفى بـ UTC في المحاكاة
+        Utilities: { formatDate: d => d.toISOString().slice(0, 16) }
     });
-    return { S, session, sheets, rows: n => (sheets[n] ? sheets[n].rows : null) };
+    return {
+        S, session, sheets,
+        rows: n => (sheets[n] ? sheets[n].rows : null),
+        // يضيف شيتاً بعد التحميل (حين تلزم ترويسات الخادم لبناء الصفوف)
+        addSheet: (n, rows) => { const s = new FakeSheet(n); s.rows = rows.map(r => r.slice()); sheets[n] = s; return s; }
+    };
 }
 
 module.exports = { makeEnv, FakeSheet };

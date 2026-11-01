@@ -9,3 +9,4 @@
 | [0003](0003-shared-calculation-engine.md) | محرك احتساب مشترك والخادم مرجع |
 | [0004](0004-paid-is-settled-not-erased.md) | ما صُرف يُسوّى ولا يُمحى؛ حذف منطقي |
 | [0005](0005-dates-only-no-time.md) | احتساب الأيام بالتاريخ دون الوقت |
+| [0006](0006-separation-of-duties.md) | فصل المهام بلا استثناء |
