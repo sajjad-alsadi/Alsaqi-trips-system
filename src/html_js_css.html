@@ -1209,7 +1209,7 @@ legend { padding: 0; }
         <svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>
         <h2>لا تملك صلاحية الدخول</h2>
         <p id="deniedText"></p>
-        <button type="button" class="btn btn-secondary" onclick="location.reload()">إعادة المحاولة</button>
+        <button type="button" class="btn btn-secondary" onclick="retryAccess()">إعادة المحاولة</button>
     </div>
 </div>
 
@@ -1996,6 +1996,11 @@ function showTablesMessage(text, hint) {
 function showDenied(data) {
     $('deniedText').textContent = (data.hint || 'ليست لديك صلاحية استعمال النظام.') + (data.email ? ' (' + data.email + ')' : '');
     $('deniedScreen').classList.remove('hidden');
+}
+// إعادة المحاولة من شاشة الرفض: تُعاد قراءة الصلاحيات من الخادم دون إعادة تحميل الصفحة نفسها، لأنها داخل إطار معزول في Apps Script وإعادة تحميله تُنتج صفحة بيضاء
+function retryAccess() {
+    $('deniedScreen').classList.add('hidden');
+    loadDashboardData();
 }
 
 // دالة لجلب البيانات للشاشات (المالية / الرقابة / التقارير)
