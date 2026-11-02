@@ -4,7 +4,7 @@
 // ==========================================
 
 // رقم إصدار الخادم: تعرضه الواجهة للتنبيه إذا كانت النسخة المنشورة قديمة
-const APP_VERSION = '2026-11-01-separation-of-duties';
+const APP_VERSION = '2026-11-01-employee-directory';
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -17,7 +17,7 @@ function doGet() {
 // ------------------------------------------------------------------
 // ثوابت: الشيتات والحالات والأعمدة
 // ------------------------------------------------------------------
-const SHEETS = { trips: 'الإيفادات', emps: 'الموفدون', adj: 'التسويات', log: 'سجل التغييرات', users: 'المستخدمون', rates: 'الأسعار' };
+const SHEETS = { trips: 'الإيفادات', emps: 'الموفدون', adj: 'التسويات', log: 'سجل التغييرات', users: 'المستخدمون', rates: 'الأسعار', dir: 'الموظفون', depts: 'الأقسام', linkReview: 'مراجعة الربط' };
 
 // دورة الإيفاد: موارد بشرية ← مصادقة المالية ← مصادقة الرقابة ← الصرف بقيد ← تم الصرف
 const ST = {
@@ -34,13 +34,15 @@ const TRIP_HEADERS = ['رقم الإيفاد', 'تاريخ الذهاب', 'تا�
   'مصادقة المالية', 'تاريخ مصادقة المالية', 'ملاحظات المالية',
   'نوع المخالفة', 'سبب الإعادة', 'أُعيد بواسطة', 'تاريخ الإعادة', 'يحتاج اعتماد النقل', 'المدخلات', 'أساس الاحتساب',
   'نوع مخالفة الإحالة', 'سبب الإحالة', 'أُحيل بواسطة', 'تاريخ الإحالة', 'سبب الحذف', 'حُذف بواسطة', 'تاريخ الحذف'];
-const EMP_HEADERS = ['رقم الإيفاد', 'اسم الموظف', 'الصفة', 'مخصصات الإيفاد', 'أجور النقل', 'إجمالي المستحقات', 'حالة الدفع', 'تاريخ الصرف',
+const EMP_HEADERS = ['رقم الإيفاد', 'اسم الموظف', 'الرقم الوظيفي', 'الصفة', 'مخصصات الإيفاد', 'أجور النقل', 'إجمالي المستحقات', 'حالة الدفع', 'تاريخ الصرف',
   'أجور المبيت', 'القسم', 'الدرجة', 'السلفة', 'حالة السلفة', 'قيد صرف السلفة', 'المصروف', 'رقم قيد الصرف', 'الدافع',
   'حالة الموفد', 'مصادقة المالية', 'تاريخ مصادقة المالية', 'ملاحظات المالية', 'المدقق', 'تاريخ التدقيق', 'ملاحظات التدقيق',
   'نوع المخالفة', 'سبب الإعادة', 'أُعيد بواسطة', 'تاريخ الإعادة', 'الحالة قبل الإحالة'];
 const ADJ_HEADERS = ['المعرف', 'رقم الإيفاد', 'اسم الموظف', 'النوع', 'المبلغ', 'السبب', 'المصدر', 'الحالة', 'تاريخ الإنشاء', 'أنشأها', 'تاريخ الإغلاق', 'أغلقها', 'المرجع'];
 const LOG_HEADERS = ['الوقت', 'المستخدم', 'الدور', 'رقم الإيفاد', 'الإجراء', 'التفاصيل'];
 const USER_HEADERS = ['البريد', 'الدور', 'الاسم'];
+const DIR_HEADERS = ['الرقم الوظيفي', 'الاسم', 'القسم', 'الدرجة', 'الحالة'];    // قائمة الموظفين (تديرها الموارد البشرية)
+const DEPT_HEADERS = ['القسم', 'الحالة'];                                       // قائمة الأقسام
 const RATE_HEADERS = ['النوع', 'البند', 'المبلغ', 'سارٍ من'];
 
 // الأسعار الأولية حسب الوثائق المعتمدة (تُنشأ مرة واحدة ثم تُعدَّل من شيت "الأسعار" بتاريخ سريان)
@@ -65,8 +67,8 @@ function toTransferable(value) {
 
 // ذاكرة التنفيذ الواحد. كل نداء من الواجهة تنفيذ مستقل، فما يُحفظ هنا يسقط بنهايته (لا خطر قِدَم بين المستخدمين).
 // تُوفّر استدعاءات خدمة Sheets المتكررة (فحص الأعمدة وقراءة المستخدم)، وهي أبطأ ما في النظام.
-let SHEET_MEMO_ = {}, HEAD_MEMO_ = [], ROWS_MEMO_ = [], USER_MEMO_ = null;
-function resetExecutionCache_() { SHEET_MEMO_ = {}; HEAD_MEMO_ = []; ROWS_MEMO_ = []; USER_MEMO_ = null; }
+let SHEET_MEMO_ = {}, HEAD_MEMO_ = [], ROWS_MEMO_ = [], USER_MEMO_ = null, DIR_MEMO_ = null;
+function resetExecutionCache_() { SHEET_MEMO_ = {}; HEAD_MEMO_ = []; ROWS_MEMO_ = []; USER_MEMO_ = null; DIR_MEMO_ = null; }
 // صفوف إيفاد واحد المقروءة مؤخراً: تُستعمل ثانيةً داخل التنفيذ نفسه، وتُحدَّث في مكانها عند الكتابة فلا تصير قديمة
 function dropRows_(sh) { ROWS_MEMO_ = ROWS_MEMO_.filter(function (m) { return m.sh !== sh; }); }
 function setHeaders_(sh, headers) {
@@ -358,7 +360,8 @@ function getDashboardData() {
     .filter(function (r) { return String(r['البريد']).trim() !== ''; })
     .map(function (r) { return { email: String(r['البريد']).trim().toLowerCase(), name: String(r['الاسم'] || '').trim() }; });
   return { trips: pack_(trips.filter(function (t) { return t['حالة الطلب'] !== ST.DEL; })), employees: pack_(employees), adjustments: adjustments, rates: rates, users: users,
-           session: { email: u.email, roles: u.roles }, violationTypes: VIOLATION_TYPES, version: APP_VERSION };
+           session: { email: u.email, roles: u.roles }, violationTypes: VIOLATION_TYPES, version: APP_VERSION,
+           directory: u.roles.indexOf('hr') >= 0 ? publicDirectory_() : undefined };
 }
 
 // سجل التغييرات الخاص بإيفاد واحد فقط (يُجلب عند الطلب من لوحة التفاصيل، لا مع كل تحميل)
@@ -390,6 +393,118 @@ function checkDuplicateID(tripId) {
 // ------------------------------------------------------------------
 // تجهيز إيفاد: تنظيف المدخلات، الاحتساب من الخادم، الفحوص
 // ------------------------------------------------------------------
+// ——— قائمة الموظفين والأقسام (قرار المالك: الموارد البشرية مصدرها) ———
+// الهوية بالرقم الوظيفي لا بالاسم. الأسماء والأقسام والدرجات في الإيفاد تؤخذ من القائمة لا من الكتابة الحرة.
+function looseKey_(s) { return nameKey_(s).replace(/\s+/g, ''); }   // يتجاهل المسافات أيضاً: «عبد الله» = «عبدالله» (للمطابقة التقريبية فقط)
+function isActiveFlag_(v) {
+  const s = String(v === undefined || v === null ? '' : v).replace(/[\u064B-\u0652\u0640]/g, '').replace(/\s+/g, '');
+  return s === '' || s === 'فعال' || s === 'نعم';
+}
+function directory_() {
+  if (DIR_MEMO_) return DIR_MEMO_;
+  const issues = [], employees = [], byId = {}, exactIdx = {}, looseIdx = {};
+  const deptRows = readRows_(sheet_(SHEETS.depts, DEPT_HEADERS)).rows.filter(function (r) { return String(r['القسم']).trim() !== ''; });
+  const departments = deptRows.filter(function (r) { return isActiveFlag_(r['الحالة']); }).map(function (r) { return String(r['القسم']).trim(); });
+  const deptKeys = {};
+  departments.forEach(function (d) { deptKeys[nameKey_(d)] = true; });
+  readRows_(sheet_(SHEETS.dir, DIR_HEADERS)).rows.forEach(function (r) {
+    const id = String(r['الرقم الوظيفي']).trim(), name = String(r['الاسم']).trim(), at = 'صف ' + r.__row + ': ';
+    if (!id && !name) return;
+    if (!id) { issues.push(at + 'الاسم "' + name + '" بلا رقم وظيفي (متجاهَل).'); return; }
+    if (!name) { issues.push(at + 'الرقم الوظيفي ' + id + ' بلا اسم (متجاهَل).'); return; }
+    if (byId[normId_(id)]) { issues.push(at + 'الرقم الوظيفي ' + id + ' مكرر (متجاهَل).'); return; }
+    const dept = String(r['القسم']).trim(), grade = String(r['الدرجة']).trim();
+    if (dept && departments.length && !deptKeys[nameKey_(dept)]) issues.push(at + 'القسم "' + dept + '" غير موجود في شيت الأقسام.');
+    if (grade && GRADES_.indexOf(grade) < 0) issues.push(at + 'الدرجة "' + grade + '" غير معتمدة.');
+    const e = { id: id, name: name, dept: dept, grade: grade, active: isActiveFlag_(r['الحالة']) };
+    employees.push(e);
+    byId[normId_(id)] = e;
+    (exactIdx[nameKey_(name)] = exactIdx[nameKey_(name)] || []).push(e);
+    (looseIdx[looseKey_(name)] = looseIdx[looseKey_(name)] || []).push(e);
+  });
+  DIR_MEMO_ = { employees: employees, departments: departments, issues: issues, byId: byId, exactIdx: exactIdx, looseIdx: looseIdx };
+  return DIR_MEMO_;
+}
+// ما يُرسَل للواجهة (الموارد البشرية فقط)
+function publicDirectory_() {
+  const d = directory_();
+  return { employees: d.employees, departments: d.departments, issues: d.issues };
+}
+// موظف القائمة المطابق لاسم قديم مكتوب بالخط الحرة: مطابقة تامة (نفس المفتاح) ثم تقريبية (تجاهل المسافات)؛ الملتبس (أكثر من موظف) = لا شيء
+function dirEntryForName_(name, dir) {
+  const k = nameKey_(name);
+  if (!k) return null;
+  const ex = dir.exactIdx[k] || [];
+  if (ex.length) return ex.length === 1 ? ex[0] : null;
+  const lo = dir.looseIdx[looseKey_(name)] || [];
+  return lo.length === 1 ? lo[0] : null;
+}
+// هوية صف موفد مخزَّن: رقمه إن وُجد، وإلا رقم موظف القائمة المطابق لاسمه، وإلا مفتاح الاسم التقريبي
+function empIdentity_(row, dir) {
+  let id = String(row['الرقم الوظيفي'] || '').trim();
+  if (!id) { const d = dirEntryForName_(row['اسم الموظف'], dir); if (d) id = d.id; }
+  return id ? 'id:' + normId_(id) : 'n:' + looseKey_(row['اسم الموظف']);
+}
+function resolveEntry_(dir, id, name, isDriver, keep) {
+  const pre = isDriver ? 'السائق: ' : '';
+  const nid = normId_(id || '');
+  if (!nid) return { error: pre + 'اختر ' + (isDriver ? 'السائق' : 'الموظف') + ' "' + name + '" من قائمة الموظفين (لا يُقبل اسم مكتوب يدوياً).' };
+  const d = dir.byId[nid];
+  if (!d) return { error: pre + 'الرقم الوظيفي "' + id + '" غير موجود في قائمة الموظفين.' };
+  // غير الفعّال لا يُضاف لإيفاد جديد، لكن من كان في الإيفاد القائم يبقى فيه عند تعديله
+  if (!d.active && !(keep && keep['id:' + nid])) return { error: pre + 'الموظف "' + d.name + '" غير فعّال في قائمة الموظفين.' };
+  return { entry: d };
+}
+// يستبدل اسم كل موفد وقسمه ودرجته بما في القائمة (لا بما كُتب)، ويعيد خريطة اسم ← رقم وظيفي ليُسجَّل على صفوف الموفدين
+function applyDirectory_(inp, keep) {
+  const dir = directory_(), errors = [], ids = {};
+  const any = inp.employees.some(function (e) { return e.id || e.name; }) || inp.driverName || inp.driverId;
+  if (!any) return { errors: errors, ids: ids };
+  if (!dir.employees.length) return { errors: ['قائمة الموظفين فارغة. تضيفها الموارد البشرية في شيت "' + SHEETS.dir + '" (الرقم الوظيفي، الاسم، القسم، الدرجة).'], ids: ids };
+  inp.employees.forEach(function (e) {
+    if (!e.id && !e.name) return;
+    const r = resolveEntry_(dir, e.id, e.name, false, keep);
+    if (r.error) { errors.push(r.error); return; }
+    e.id = r.entry.id; e.name = r.entry.name; e.dept = r.entry.dept; e.grade = r.entry.grade;
+    ids[nameKey_(e.name)] = e.id;
+  });
+  if (inp.driverName || inp.driverId) {
+    const r = resolveEntry_(dir, inp.driverId, inp.driverName, true, keep);
+    if (r.error) errors.push(r.error);
+    else { inp.driverId = r.entry.id; inp.driverName = r.entry.name; ids[nameKey_(r.entry.name)] = r.entry.id; }
+  }
+  return { errors: errors, ids: ids };
+}
+// ربط صفوف الموفدين القديمة بالرقم الوظيفي (مسؤول): تُشغَّل يدوياً بعد تعبئة القائمة.
+// مطابقة تامة للاسم ثم تقريبية (تجاهل المسافات)؛ الملتبس وغير الموجود لا يُغيَّر ويُسجَّل في شيت "مراجعة الربط" للمراجعة اليدوية.
+function linkEmployeesToDirectory() {
+  return withLock_(function () {
+    const u = requireRole_('admin', 'ربط الموفدين بقائمة الموظفين');
+    const dir = directory_();
+    if (!dir.employees.length) throw new Error('قائمة الموظفين فارغة.');
+    const empSh = sheet_(SHEETS.emps, EMP_HEADERS);
+    const counts = { exact: 0, approx: 0, ambiguous: 0, none: 0, already: 0 };
+    const report = [['رقم الإيفاد', 'اسم الموظف', 'النتيجة', 'الرقم الوظيفي المقترح', 'الاسم في القائمة']];
+    readRows_(empSh).rows.forEach(function (r) {
+      const name = String(r['اسم الموظف'] || '').trim();
+      if (String(r['الرقم الوظيفي'] || '').trim()) { counts.already++; return; }
+      if (!name) return;
+      const ex = dir.exactIdx[nameKey_(name)] || [], lo = dir.looseIdx[looseKey_(name)] || [];
+      if (ex.length === 1) { updateRow_(empSh, r.__row, { 'الرقم الوظيفي': ex[0].id }); counts.exact++; }
+      else if (!ex.length && lo.length === 1) {
+        updateRow_(empSh, r.__row, { 'الرقم الوظيفي': lo[0].id }); counts.approx++;
+        report.push([r['رقم الإيفاد'], name, 'مطابقة تقريبية', lo[0].id, lo[0].name]);
+      } else if (ex.length > 1 || lo.length > 1) { counts.ambiguous++; report.push([r['رقم الإيفاد'], name, 'ملتبس', '', (ex.length ? ex : lo).map(function (x) { return x.id + ' ' + x.name; }).join(' | ')]); }
+      else { counts.none++; report.push([r['رقم الإيفاد'], name, 'غير موجود في القائمة', '', '']); }
+    });
+    const rsh = sheet_(SHEETS.linkReview, report[0]);
+    rsh.clearContents();
+    rsh.getRange(1, 1, report.length, report[0].length).setValues(report);
+    appendLog_(u, '', 'ربط الموفدين بقائمة الموظفين', counts);
+    return { success: true, counts: counts, message: 'رُبط ' + (counts.exact + counts.approx) + ' صفاً؛ للمراجعة اليدوية: ' + (counts.ambiguous + counts.none + counts.approx) + ' (شيت "' + SHEETS.linkReview + '").' };
+  });
+}
+
 function cleanInput_(f) {
   const stops = (f.stops || []).map(function (s) { return { gov: canonGov_(s.gov), days: s.days }; });
   return {
@@ -397,23 +512,27 @@ function cleanInput_(f) {
     type: f.type === 'خارجي' ? 'خارجي' : 'داخلي', country: safeText_(f.country, 80),
     start: String(f.start || ''), end: String(f.end || ''), origin: canonGov_(f.origin || HOME_GOV_),
     stops: stops, vehicle: ['شركة', 'شخصية', 'مستأجرة'].indexOf(f.vehicle) !== -1 ? f.vehicle : 'شركة',
-    transportReceiver: safeText_(f.transportReceiver, 100), driverName: safeText_(f.driverName, 100), driverNoAllowance: f.driverNoAllowance === true, driverOnly: f.driverOnly === true,
+    transportReceiver: safeText_(f.transportReceiver, 100), driverName: safeText_(f.driverName, 100), driverId: safeText_(f.driverId, 40), driverNoAllowance: f.driverNoAllowance === true, driverOnly: f.driverOnly === true,
     distanceKm: f.distanceKm === undefined ? '' : f.distanceKm, kmRate: f.kmRate === undefined ? '' : f.kmRate,
     hotelType: ['لا يوجد', 'متعاقد', 'غير متعاقد'].indexOf(f.hotelType) !== -1 ? f.hotelType : 'لا يوجد',
     hotelAmount: f.hotelAmount === undefined ? '' : f.hotelAmount, hotelReceiver: safeText_(f.hotelReceiver, 100),
     employees: (f.employees || []).map(function (e) {
-      return { name: safeText_(e.name, 100), dept: safeText_(e.dept, 100), grade: safeText_(e.grade, 40), advance: e.advance === undefined ? '' : e.advance };
+      return { id: safeText_(e.id, 40), name: safeText_(e.name, 100), dept: safeText_(e.dept, 100), grade: safeText_(e.grade, 40), advance: e.advance === undefined ? '' : e.advance };
     })
   };
 }
 
 // فحص التداخل الزمني لنفس الموفد (الضابط 9: الإيفاد الثاني في اليوم نفسه بعد العودة للنجف يُحتسب إيفاداً مستقلاً)
-function checkOverlaps_(calc, inp, excludeId) {
+function checkOverlaps_(calc, inp, excludeId, ids) {
   const trips = readRows_(sheet_(SHEETS.trips, TRIP_HEADERS)).rows;
   const emps = readRows_(sheet_(SHEETS.emps, EMP_HEADERS)).rows;
   const a0 = parseLocal_(inp.start), a1 = parseLocal_(inp.end);
-  const mine = {};
-  calc.employees.forEach(function (e) { mine[nameKey_(e.name)] = e.name; });
+  const dir = directory_(), mine = {};   // الهوية: الرقم الوظيفي، وللصفوف القديمة غير المربوطة مفتاح الاسم التقريبي
+  calc.employees.forEach(function (e) {
+    const id = ids && ids[nameKey_(e.name)];
+    if (id) mine['id:' + normId_(id)] = e.name;
+    mine['n:' + looseKey_(e.name)] = e.name;
+  });
   let second = false;
   const skip = normId_(excludeId || '');
   trips.forEach(function (t) {
@@ -422,7 +541,7 @@ function checkOverlaps_(calc, inp, excludeId) {
     const b0 = parseLocal_(localStr_(t['تاريخ الذهاب'])), b1 = parseLocal_(localStr_(t['تاريخ العودة']));
     if (!b0 || !b1) return;
     const names = emps.filter(function (e) { return normId_(e['رقم الإيفاد']) === normId_(t['رقم الإيفاد']); })
-      .map(function (e) { return nameKey_(e['اسم الموظف']); }).filter(function (k) { return mine[k]; });
+      .map(function (e) { return empIdentity_(e, dir); }).filter(function (k) { return mine[k]; });
     if (!names.length) return;
     if (minutesOf_(a0) < minutesOf_(b1) && minutesOf_(b0) < minutesOf_(a1)) {
       throw new Error('الموفد "' + mine[names[0]] + '" لديه إيفاد متداخل زمنياً (' + t['رقم الإيفاد'] + '). عدّل التواريخ أو أعد الإيفاد المتداخل.');
@@ -432,14 +551,16 @@ function checkOverlaps_(calc, inp, excludeId) {
   return second;
 }
 
-function prepareTrip_(rawInput, excludeId) {
+function prepareTrip_(rawInput, excludeId, keepIds) {
   const inp = cleanInput_(rawInput);
   if (!inp.tripId) throw new Error('رقم الإيفاد مطلوب.');
   if (!inp.purpose) throw new Error('غرض الإيفاد مطلوب (الضابط 2).');
+  const dr = applyDirectory_(inp, keepIds);
+  if (dr.errors.length) throw new Error(dr.errors.join('\n'));
   const calc = calcTrip_(inp, pickRates_(rateRows_(), inp.start));
   if (calc.errors.length) throw new Error(calc.errors.join('\n'));
-  const second = checkOverlaps_(calc, inp, excludeId);
-  return { inp: inp, calc: calc, second: second };
+  const second = checkOverlaps_(calc, inp, excludeId, dr.ids);
+  return { inp: inp, calc: calc, second: second, ids: dr.ids };
 }
 
 function tripFields_(p, u) {
@@ -456,9 +577,9 @@ function tripFields_(p, u) {
   };
 }
 
-function empFields_(tripId, e) {
+function empFields_(tripId, e, ids) {
   return {
-    'رقم الإيفاد': tripId, 'اسم الموظف': e.name, 'الصفة': e.role || '', 'مخصصات الإيفاد': e.allowance, 'أجور النقل': e.transport, 'إجمالي المستحقات': e.total,
+    'رقم الإيفاد': tripId, 'اسم الموظف': e.name, 'الرقم الوظيفي': (ids && ids[nameKey_(e.name)]) || '', 'الصفة': e.role || '', 'مخصصات الإيفاد': e.allowance, 'أجور النقل': e.transport, 'إجمالي المستحقات': e.total,
     'أجور المبيت': e.hotel, 'القسم': e.dept, 'الدرجة': e.grade, 'السلفة': e.advance
   };
 }
@@ -485,7 +606,7 @@ function saveTripData(formData) {
     f['حالة الطلب'] = ST.FIN; f['تاريخ الإدخال'] = new Date(); f['المُدخِل'] = u.email; f['مُدخِل النسخة الحالية'] = u.email; f['الإصدار'] = 1;
     appendRow_(tripsSh, f);
     p.calc.employees.forEach(function (e) {
-      const row = empFields_(p.inp.tripId, e);
+      const row = empFields_(p.inp.tripId, e, p.ids);
       row['حالة الدفع'] = 'لم يتم الدفع'; row['المصروف'] = 0; row['حالة السلفة'] = e.advance > 0 ? 'بانتظار الصرف' : '';
       row['حالة الموفد'] = ST.FIN;
       appendRow_(empSh, row);
@@ -517,26 +638,29 @@ function updateTrip(tripId, formData, reason) {
     const before = summary_(trip, oldEmps);
 
     formData.tripId = trip['رقم الإيفاد'];            // رقم الإيفاد ثابت عند التعديل
-    const p = prepareTrip_(formData, tripId);
+    // الهوية بالرقم الوظيفي (وللصفوف القديمة بما تطابقه من القائمة)؛ من صار غير فعّال ويبقى في الإيفاد القائم لا يُمنع تعديله
+    const dir = directory_(), keep = {};
+    oldEmps.forEach(function (o) { keep[empIdentity_(o, dir)] = true; });
+    const p = prepareTrip_(formData, tripId, keep);
+    const keyNew = function (e) { return 'id:' + normId_(p.ids[nameKey_(e.name)]); };
+    const keyOld = function (o) { return empIdentity_(o, dir); };
     const newByKey = {};
-    p.calc.employees.forEach(function (e) { newByKey[nameKey_(e.name)] = e; });
+    p.calc.employees.forEach(function (e) { newByKey[keyNew(e)] = e; });
 
     // السلف المصروفة لا تُعدَّل ولا يُحذف صاحبها: تُسوّى أولاً
     oldEmps.forEach(function (o) {
       const st = String(o['حالة السلفة']);
       if (st === 'مصروفة' || st === 'مُسوّاة') {
-        const n = newByKey[nameKey_(o['اسم الموظف'])];
+        const n = newByKey[keyOld(o)];
         if (!n || n.advance !== (Number(o['السلفة']) || 0)) throw new Error('لا يمكن تغيير أو حذف سلفة مصروفة للموفد "' + o['اسم الموظف'] + '".');
       }
     });
 
     // تحديث الموفدين: يُحافَظ على المصروف فعلاً، والزائد يُسجَّل تسوية استرداد ولا يُكتب فوقه.
     // كل موفد (حتى من لم يُعَد تحديداً) يبدأ دورة مصادقة جديدة، لأن بيانات الإيفاد المشتركة (التواريخ والوجهة) تغيّرت.
-    const oldByKey = {};
-    oldEmps.forEach(function (o) { oldByKey[nameKey_(o['اسم الموظف'])] = o; });
     const toDelete = [];
     oldEmps.forEach(function (o) {
-      const k = nameKey_(o['اسم الموظف']), n = newByKey[k], paid = paidOf_(o);
+      const n = newByKey[keyOld(o)], paid = paidOf_(o);
       if (!n) {
         if (paid > 0) addAdjustment_(adjSh, u, tripId, o['اسم الموظف'], 'استرداد', paid, 'حذف الموفد من الإيفاد بعد صرف مستحقاته', 'تعديل');
         toDelete.push(o.__row);
@@ -547,13 +671,13 @@ function updateTrip(tripId, formData, reason) {
     // إعادة القراءة بعد الحذف لتصحيح أرقام الصفوف
     const rowsNow = tripEmps_(readTripRows_(empSh, tripId).rows, tripId);
     const nowByKey = {};
-    rowsNow.forEach(function (o) { nowByKey[nameKey_(o['اسم الموظف'])] = o; });
+    rowsNow.forEach(function (o) { nowByKey[keyOld(o)] = o; });
     p.calc.employees.forEach(function (e) {
-      const k = nameKey_(e.name), o = nowByKey[k];
+      const o = nowByKey[keyNew(e)];
       const resetFields = { 'حالة الموفد': ST.FIN, 'مصادقة المالية': '', 'تاريخ مصادقة المالية': '', 'ملاحظات المالية': '',
                              'المدقق': '', 'تاريخ التدقيق': '', 'ملاحظات التدقيق': '', 'نوع المخالفة': '', 'سبب الإعادة': '', 'أُعيد بواسطة': '', 'تاريخ الإعادة': '' };
       if (o) {
-        const paid = paidOf_(o), fields = Object.assign(empFields_(tripId, e), resetFields);
+        const paid = paidOf_(o), fields = Object.assign(empFields_(tripId, e, p.ids), resetFields);
         const advPaid = String(o['حالة السلفة']) === 'مصروفة' || String(o['حالة السلفة']) === 'مُسوّاة';
         if (advPaid) { delete fields['السلفة']; }
         else fields['حالة السلفة'] = e.advance > 0 ? 'بانتظار الصرف' : '';
@@ -561,7 +685,7 @@ function updateTrip(tripId, formData, reason) {
         if (paid > e.total) addAdjustment_(adjSh, u, tripId, e.name, 'استرداد', paid - e.total, 'نقص المستحق بعد التعديل عمّا صُرف فعلاً', 'تعديل');
         updateRow_(empSh, o.__row, fields);
       } else {
-        const row = Object.assign(empFields_(tripId, e), resetFields);
+        const row = Object.assign(empFields_(tripId, e, p.ids), resetFields);
         row['حالة الدفع'] = 'لم يتم الدفع'; row['المصروف'] = 0; row['حالة السلفة'] = e.advance > 0 ? 'بانتظار الصرف' : '';
         appendRow_(empSh, row);
       }

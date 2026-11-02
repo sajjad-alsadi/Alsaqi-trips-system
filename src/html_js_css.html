@@ -548,6 +548,17 @@ legend { padding: 0; }
 .emp-fields .emp-dept { flex: 1 1 140px; }
 .emp-fields .emp-grade { flex: 1 1 170px; }
 .emp-fields .emp-advance { flex: 1 1 150px; }
+/* اختيار الموظف من قائمة الموارد البشرية (إكمال تلقائي) */
+.dir-wrap { position: relative; }
+.emp-fields .dir-wrap { flex: 2 1 220px; }
+.dir-wrap .input { width: 100%; }
+.dir-pop { position: absolute; inset-inline: 0; top: calc(100% + 4px); z-index: 30; margin: 0; padding: 4px; list-style: none; max-height: 260px; overflow: auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(4, 56, 63, .16); }
+.dir-opt { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.dir-opt[aria-selected="true"], .dir-opt:hover { background: var(--teal-50); }
+.dir-opt small { color: var(--ink-3); font-size: 12.5px; }
+.dir-msg { padding: 10px; font-size: 13px; color: var(--ink-3); }
+.input.is-unlinked { border-color: var(--amber-500); background: var(--amber-100); }
+.emp-fields .emp-dept[readonly] { background: var(--bg); }
 .pv-basis { padding: 0 20px 10px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .pv-errors { list-style: none; margin: 0 0 10px; padding: 0 20px; font-size: 13px; font-weight: 600; color: var(--coral-600); }
 .pv-errors li { margin-bottom: 4px; }
@@ -895,7 +906,7 @@ legend { padding: 0; }
                                 </div>
                                 <div class="field" id="driverDiv">
                                     <label class="label" for="driverName">اسم السائق</label>
-                                    <input type="text" id="driverName" class="input" maxlength="100" placeholder="سائق عجلة الشركة">
+                                    <div class="dir-wrap"><input type="text" id="driverName" class="input" maxlength="100" placeholder="اكتب اسم السائق أو رقمه الوظيفي ثم اختر من القائمة"></div>
                                     <p class="hint">يُصرف له إيفاد بنفس مخصص الوجهة والمدة ما لم تفعّل الخيار أدناه.</p>
                                     <label class="switch" for="driverNoAllowance">
                                         <input type="checkbox" id="driverNoAllowance">
@@ -957,7 +968,8 @@ legend { padding: 0; }
                             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
                                 <div>
                                     <h2 class="fsec-title"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg>الموفدون</h2>
-                                    <p class="fsec-sub">الاسم الرباعي والقسم <span class="abroad-only">والدرجة الوظيفية والسلفة (إن وُجدت)</span>.</p>
+                                    <p class="fsec-sub">اكتب اسم الموظف أو رقمه الوظيفي ثم اختره من قائمة الموارد البشرية؛ يُملأ القسم <span class="abroad-only">والدرجة</span> منها. <span class="abroad-only">أدخل السلفة (إن وُجدت).</span></p>
+                                    <p class="hint hidden" id="dirIssues"></p>
                                 </div>
                                 <button type="button" class="btn btn-secondary btn-sm" onclick="addEmployee()"><svg class="ic ic--sm" aria-hidden="true"><use href="#i-plus"/></svg>إضافة موفد</button>
                             </div>
@@ -1480,7 +1492,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const ST_ = { FIN: 'بانتظار مصادقة المالية', AUD: 'بانتظار مصادقة الرقابة', PAY: 'بانتظار الصرف', DONE: 'تم الصرف', RET_HR: 'معاد إلى الموارد البشرية', RET_FIN: 'معاد إلى المالية', ADMIN: 'محال إلى المسؤول' };
 
 // نسخة الخادم (APP_VERSION في Code.gs) التي صُمّمت هذه الواجهة عليها: عند أي إصدار جديد يُحدَّث الثابتان معاً
-const EXPECTED_SERVER_VERSION = '2026-11-01-separation-of-duties';
+const EXPECTED_SERVER_VERSION = '2026-11-01-employee-directory';
 const STATE = {
     trips: [], employees: [], adjustments: [], log: [], rates: [], violationTypes: [], session: null, version: '',
     loaded: false, reqId: 0, period: 'all', chartMode: 'amount',
@@ -2055,6 +2067,8 @@ function loadDashboardData() {
         STATE.adjustments = data.adjustments || [];
         STATE.rates = data.rates || [];
         STATE.users = data.users || [];
+    STATE.directory = data.directory || null;
+    renderDirectoryIssues();
         STATE.session = data.session;
         STATE.violationTypes = data.violationTypes || [];
         STATE.version = data.version || '';
@@ -3418,23 +3432,125 @@ function setFormType(type) {
 }
 
 // ---------------------------------------------------------------- الموفدون
+// ——— اختيار الموظف من قائمة الموارد البشرية (الإكمال التلقائي) ———
+// تطبيع يتجاهل الهمزات والياء والتاء المربوطة والمسافات: «عبدالله» تجد «عبد الله»
+const looseKey_ = s => nameKey_(s).replace(/\s+/g, '');
+// الموظفون الفعّالون المطابقون لما كُتب (اسم أو رقم وظيفي أو قسم)، الأقرب أولاً، دون من اختير في صف آخر
+function matchDirectory(directory, query, takenIds, limit) {
+    const toks = nameKey_(query).split(' ').filter(Boolean), idq = normId_(query), lq = looseKey_(query);
+    if (!toks.length) return [];
+    const taken = takenIds || new Set(), out = [];
+    ((directory && directory.employees) || []).forEach(e => {
+        if (!e.active || taken.has(normId_(e.id))) return;
+        const name = looseKey_(e.name), hay = name + '|' + looseKey_(e.dept);
+        if (!toks.every(tk => hay.indexOf(tk) >= 0) && normId_(e.id).indexOf(idq) < 0) return;
+        const at = name.indexOf(lq);
+        out.push({ e: e, rank: at === 0 ? 0 : (at > 0 ? 1 : 2) });
+    });
+    out.sort((a, b) => a.rank - b.rank || a.e.name.localeCompare(b.e.name, 'ar'));
+    return out.slice(0, limit || 8).map(x => x.e);
+}
+function directoryEntry(id) {
+    const k = normId_(id || '');
+    return (STATE.directory && k) ? (STATE.directory.employees.find(e => normId_(e.id) === k) || null) : null;
+}
+// الأرقام الوظيفية المختارة في الصفوف الأخرى (والسائق إن ظهر) فلا تُعرض ثانيةً
+function takenDirectoryIds(selfInput) {
+    const s = new Set();
+    document.querySelectorAll('.emp-name, #driverName').forEach(i => {
+        if (i === selfInput || !i.dataset.empId) return;
+        if (i.id === 'driverName' && $('driverDiv').classList.contains('hidden')) return;
+        s.add(normId_(i.dataset.empId));
+    });
+    return s;
+}
+let DIR_SEQ = 0;
+let DRIVER_PICKER = null;   // يُنشأ في initApp (بعد بناء النموذج) ويستعمله populateForm وclearFormFields
+// يجعل حقل الاسم مربع اختيار (combobox): الربط بالرقم الوظيفي في dataset.empId، وأي تعديل للنص يفك الربط.
+function attachDirectoryPicker(input, hooks) {
+    const popId = 'dirpop' + (++DIR_SEQ), pop = el('ul', 'dir-pop hidden');
+    pop.id = popId; pop.setAttribute('role', 'listbox');
+    input.setAttribute('role', 'combobox'); input.setAttribute('aria-autocomplete', 'list'); input.setAttribute('aria-expanded', 'false');
+    input.setAttribute('aria-controls', popId); input.autocomplete = 'off';
+    input.parentNode.appendChild(pop);
+    let items = [], active = -1;
+    const sync = () => input.classList.toggle('is-unlinked', input.value.trim() !== '' && !input.dataset.empId);
+    const close = () => { pop.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); active = -1; };
+    const message = text => { pop.innerHTML = ''; pop.appendChild(el('li', 'dir-msg', text)); items = []; pop.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true'); };
+    const setActive = i => {
+        active = i;
+        Array.from(pop.children).forEach((li, k) => li.setAttribute('aria-selected', String(k === i)));
+        if (i >= 0) input.setAttribute('aria-activedescendant', popId + '-' + i); else input.removeAttribute('aria-activedescendant');
+    };
+    const bind = e => { input.value = e.name; input.dataset.empId = e.id; input.dataset.boundName = e.name; sync(); close(); hooks.onBind(e); };
+    const unbind = () => { delete input.dataset.empId; delete input.dataset.boundName; sync(); hooks.onUnbind(); };
+    const render = () => {
+        const q = input.value.trim(), dir = STATE.directory;
+        if (!q) { close(); return; }
+        if (!dir || !dir.employees.length) { message('قائمة الموظفين فارغة: تضيفها الموارد البشرية في شيت «الموظفون».'); return; }
+        items = matchDirectory(dir, q, hooks.takenIds(), 8);
+        if (!items.length) { message('لا نتائج. إن كان الموظف جديداً فتضيفه الموارد البشرية أولاً في شيت «الموظفون».'); return; }
+        pop.innerHTML = '';
+        items.forEach((e, i) => {
+            const li = el('li', 'dir-opt'); li.id = popId + '-' + i; li.setAttribute('role', 'option'); li.setAttribute('aria-selected', 'false');
+            li.appendChild(el('span', '', e.name)); li.appendChild(el('small', '', [e.dept, e.grade, e.id].filter(Boolean).join(' · ')));
+            li.addEventListener('mousedown', ev => { ev.preventDefault(); bind(e); });   // قبل blur
+            pop.appendChild(li);
+        });
+        pop.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true'); setActive(0);
+    };
+    input.addEventListener('input', () => { if (input.dataset.empId && input.value !== input.dataset.boundName) unbind(); else sync(); render(); });
+    input.addEventListener('focus', render);
+    input.addEventListener('blur', () => setTimeout(close, 120));
+    input.addEventListener('keydown', ev => {
+        if (pop.classList.contains('hidden') || !items.length) return;
+        if (ev.key === 'ArrowDown') { ev.preventDefault(); setActive(Math.min(items.length - 1, active + 1)); }
+        else if (ev.key === 'ArrowUp') { ev.preventDefault(); setActive(Math.max(0, active - 1)); }
+        else if (ev.key === 'Enter' && active >= 0) { ev.preventDefault(); bind(items[active]); }
+        else if (ev.key === 'Escape') close();
+    });
+    return {
+        // يضبط الحقل من بيانات محفوظة: موظف القائمة إن وُجد، وإلا اسم قديم غير مربوط (يظهر منبَّهاً ويلزم اختياره من القائمة)
+        set(id, name) {
+            delete input.dataset.empId; delete input.dataset.boundName;
+            input.value = name || '';
+            const e = directoryEntry(id);
+            if (e) bind(e);
+            else { if (id) { input.dataset.empId = id; input.dataset.boundName = input.value; } sync(); }
+        }
+    };
+}
+// ملاحظات قائمة الموظفين (تكرار رقم، قسم أو درجة غير معتمدة...) تظهر للموارد البشرية تحت قسم الموفدين
+function renderDirectoryIssues() {
+    const box = $('dirIssues'), issues = (STATE.directory && STATE.directory.issues) || [];
+    box.classList.toggle('hidden', !issues.length);
+    box.textContent = issues.length ? 'ملاحظات على قائمة الموظفين (' + issues.length + '): ' + issues.slice(0, 2).join(' — ') + (issues.length > 2 ? ' …' : '') : '';
+    box.title = issues.join('\n');
+}
 function addEmployee(data) {
     data = data || {};
     const row = el('div', 'emp-row');
     const fields = el('div', 'emp-fields');
     const name = el('input', 'input emp-name');
-    name.type = 'text'; name.placeholder = 'الاسم الرباعي'; name.setAttribute('aria-label', 'اسم الموفد'); name.value = data.name || '';
+    name.type = 'text'; name.placeholder = 'الاسم أو الرقم الوظيفي'; name.setAttribute('aria-label', 'اسم الموفد (اختر من قائمة الموظفين)'); name.value = data.name || '';
     const dept = el('input', 'input emp-dept');
-    dept.type = 'text'; dept.placeholder = 'القسم'; dept.setAttribute('aria-label', 'القسم'); dept.value = data.dept || '';
+    dept.type = 'text'; dept.placeholder = 'القسم (من القائمة)'; dept.setAttribute('aria-label', 'القسم'); dept.value = data.dept || ''; dept.readOnly = true; dept.tabIndex = -1;
     const grade = el('select', 'select emp-grade abroad-only');
     grade.setAttribute('aria-label', 'الدرجة الوظيفية');
     const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'الدرجة الوظيفية'; grade.appendChild(o0);
     GRADES_.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; grade.appendChild(o); });
-    grade.value = data.grade || '';
+    grade.value = data.grade || ''; grade.disabled = true; grade.title = 'تُؤخذ الدرجة من قائمة الموظفين';
     const adv = el('input', 'input emp-advance abroad-only');
     adv.type = 'number'; adv.min = '0'; adv.inputMode = 'numeric'; adv.placeholder = 'السلفة (دينار)'; adv.setAttribute('aria-label', 'السلفة بالدينار');
     adv.value = data.advance ? data.advance : '';
-    [name, dept, grade, adv].forEach(n => fields.appendChild(n));
+    const nameWrap = el('div', 'dir-wrap'); nameWrap.appendChild(name);
+    [nameWrap, dept, grade, adv].forEach(n => fields.appendChild(n));
+    const picker = attachDirectoryPicker(name, {
+        takenIds: () => takenDirectoryIds(name),
+        onBind: e => { dept.value = e.dept || ''; grade.value = GRADES_.indexOf(e.grade) >= 0 ? e.grade : ''; refreshReceivers(); updatePreview(); },
+        onUnbind: () => { dept.value = ''; grade.value = ''; refreshReceivers(); updatePreview(); }
+    });
+    picker.set(data.id, data.name);
     const del = el('button', 'icon-btn icon-btn--danger');
     del.type = 'button';
     del.setAttribute('aria-label', 'حذف الموفد');
@@ -3543,11 +3659,12 @@ function collectFormInput() {
         stops: abroad ? [] : selectedGovs().map(g => ({ gov: g, days: days[g] })),
         vehicle: $('vehicleType').value, transportReceiver: $('transportReceiver').value, distanceKm: distanceKm, kmRate: kmRate,
         driverName: $('driverDiv').classList.contains('hidden') ? '' : $('driverName').value,
+        driverId: $('driverDiv').classList.contains('hidden') ? '' : ($('driverName').dataset.empId || ''),
         driverNoAllowance: !$('driverDiv').classList.contains('hidden') && $('driverNoAllowance').checked,
         driverOnly: driverOnlyOn(),
         hotelType: $('hotelType').value, hotelAmount: $('hotelAmount').value, hotelReceiver: $('hotelReceiver').value,
         employees: driverOnlyOn() ? [] : Array.from(document.querySelectorAll('#employeesList .emp-row')).map(r => ({
-            name: r.querySelector('.emp-name').value, dept: r.querySelector('.emp-dept').value,
+            id: r.querySelector('.emp-name').dataset.empId || '', name: r.querySelector('.emp-name').value, dept: r.querySelector('.emp-dept').value,
             grade: r.querySelector('.emp-grade').value, advance: r.querySelector('.emp-advance').value
         }))
     };
@@ -3628,6 +3745,7 @@ function clearFormFields() {
     $('tripForm').reset();
     $('destinations').querySelectorAll('option').forEach(o => { o.selected = false; });
     $('employeesList').innerHTML = '';
+    DRIVER_PICKER.set('', '');
     $('origin').value = HOME_GOV_;
     ['duplicateWarning', 'destError', 'endError'].forEach(id => $(id).classList.add('hidden'));
     ['tripId', 'endDate'].forEach(id => $(id).setAttribute('aria-invalid', 'false'));
@@ -3698,7 +3816,7 @@ function populateForm(inp) {
     refreshReceivers();
     if (inp.transportReceiver) $('transportReceiver').value = inp.transportReceiver;
     if (inp.hotelReceiver) $('hotelReceiver').value = inp.hotelReceiver;
-    $('driverName').value = inp.driverName || '';
+    DRIVER_PICKER.set(inp.driverId, inp.driverName);
     $('driverNoAllowance').checked = !!inp.driverNoAllowance;
     $('driverOnly').checked = !!inp.driverOnly;
     $('distanceKm').value = inp.distanceKm === undefined || inp.distanceKm === null ? '' : inp.distanceKm;
@@ -4021,6 +4139,11 @@ function initApp() {
     $('employeesList').addEventListener('input', ev => { if (ev.target.classList.contains('emp-name')) { refreshReceivers(); updatePreview(); } });
     $('stopsList').addEventListener('input', () => { updateStopsSum(); updatePreview(); });
     $('tripForm').addEventListener('submit', submitForm);
+    DRIVER_PICKER = attachDirectoryPicker($('driverName'), {
+        takenIds: () => takenDirectoryIds($('driverName')),
+        onBind: () => { refreshReceivers(); updatePreview(); },
+        onUnbind: () => { refreshReceivers(); updatePreview(); }
+    });
 
     // لوحة التقارير: الفترة ومقياس الرسم
     $('periodSeg').addEventListener('click', ev => {

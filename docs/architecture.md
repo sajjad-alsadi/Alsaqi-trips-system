@@ -48,6 +48,7 @@
 | طباعة «قائمة مصاريف السفر» مع التفقيط | `buildPrintForm`، `printTripLists`، `amountInWords` |
 | التحديث بعد الكتابة | `applyPatch`، `afterWrite`، `loadDashboardData` |
 | كشف نسخة الخادم القديمة | `EXPECTED_SERVER_VERSION` في `loadDashboardData` |
+| اختيار الموظف والسائق من قائمة الموارد البشرية (إكمال تلقائي) | `matchDirectory`، `attachDirectoryPicker`، `directoryEntry`، `takenDirectoryIds`، `renderDirectoryIssues`، `DRIVER_PICKER` |
 | تقادم السلف المتأخرة (للموارد البشرية) | `advanceAging`، `overdueAdvances`، `ADVANCE_SETTLE_DAYS`؛ التنبيه في `renderAlerts`، والمرشح `adv-overdue` في `listMatches`، والشارة في `updateBadges` |
 
 واجهة الدخول: إن لم يُعرَّف بريد المستخدم، يعيد `getDashboardData` الحقل `unauthorized` مع تلميح، وتعرض الواجهة شاشة المنع (`showDenied`).
@@ -57,6 +58,7 @@
 - الهوية من `Session.getActiveUser().getEmail()`، وتتطلب النشر بوضع «المستخدم الذي يصل إلى التطبيق» (الشيفرة تعرض هذا التلميح عند تعذّر تحديد الهوية).
 - كل دالة كتابة تتحقق من الدور في الخادم (`requireRole_`)؛ إخفاء الأزرار في الواجهة (`can`) تسهيل لا ضمان.
 - النصوص الحرة تمر بـ `safeText_` (قص الطول ومنع تفسيرها كصيغة في الشيت).
+- **قائمة الموظفين** لا تُرسَل إلا لمن يملك دور الموارد البشرية، والأسماء والأقسام والدرجات في الإيفاد تُؤخذ منها في الخادم (`applyDirectory_`) لا مما أرسله العميل.
 - كل إجراء يُسجَّل في «سجل التغييرات» (`appendLog_`) بالبريد والدور.
 - `setXFrameOptionsMode(ALLOWALL)`: يجوز تضمين الصفحة في إطار.
 - حدود الضوابط والملاحظات المفتوحة: `known-observations.md`.

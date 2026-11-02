@@ -27,6 +27,7 @@ class FakeSheet {
         return { getValues: () => this.rows.map(r => Array.from({ length: w }, (_, j) => r[j] === undefined ? '' : r[j])) };
     }
     appendRow(arr) { this.rows.push(arr.slice()); }
+    clearContents() { this.rows = []; }
 }
 
 // opts: { email: بريد المستخدم الحالي، owner: بريد مالك الملف (null = غير متاح)، sheets: { اسم: [[صف]...] } }
