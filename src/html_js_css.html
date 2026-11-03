@@ -517,6 +517,9 @@ legend { padding: 0; }
 .badge--held { background: #ece6f5; color: #45296f; }
 .tag { display: inline-block; margin-inline-start: 8px; padding: 1px 8px; border-radius: 6px; background: var(--teal-50); color: var(--teal-800); font-size: 12px; font-weight: 700; vertical-align: middle; }
 .tag--warn { background: var(--amber-100); color: var(--amber-800); }
+.tag--muted { background: var(--bg); color: var(--ink-3); border: 1px solid var(--line); }
+.dir-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.dir-dept-panel { margin-top: 20px; }
 .cell-actions { white-space: nowrap; }
 .cell-actions .btn + .btn { margin-inline-start: 6px; }
 .cell-reason { max-width: 260px; font-size: 13.5px; color: var(--ink-2); }
@@ -694,6 +697,9 @@ legend { padding: 0; }
             <button type="button" class="nav-item" id="nav-hrlist-tab" onclick="goTab('hrlist-tab')">
                 <svg class="ic" aria-hidden="true"><use href="#i-users"/></svg><span>الموارد البشرية</span>
                 <span class="nav-badge hidden" id="navHrBadge">0</span>
+            </button>
+            <button type="button" class="nav-item hidden" id="nav-directory-tab" onclick="goTab('directory-tab')">
+                <svg class="ic" aria-hidden="true"><use href="#i-list"/></svg><span>قائمة الموظفين</span>
             </button>
             <button type="button" class="nav-item" id="nav-finance-tab" onclick="goTab('finance-tab')">
                 <svg class="ic" aria-hidden="true"><use href="#i-banknote"/></svg><span>الشؤون المالية</span>
@@ -1071,6 +1077,68 @@ legend { padding: 0; }
                                 <th scope="col">الإجراء</th>
                             </tr></thead>
                             <tbody id="hrTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================ قائمة الموظفين والأقسام (الموارد البشرية) -->
+            <section id="directory-tab" class="tab-content hidden" aria-label="قائمة الموظفين">
+                <div class="section-head">
+                    <div>
+                        <h2 class="section-title">قائمة الموظفين والأقسام</h2>
+                        <p class="muted">المصدر الوحيد لأسماء الموفدين والسائقين في الإيفادات. تُدار من هنا (بسجل) لا بتحرير الشيت مباشرة.</p>
+                    </div>
+                    <div class="stat-pills">
+                        <span class="stat-pill"><b id="dirActiveCount">0</b> فعّال</span>
+                        <span class="stat-pill"><b id="dirInactiveCount">0</b> غير فعّال</span>
+                    </div>
+                </div>
+                <p class="hint hidden" id="dirTabIssues"></p>
+                <div class="panel">
+                    <div class="table-tools">
+                        <div class="search">
+                            <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+                            <input type="search" id="dirSearch" class="input" aria-label="بحث في قائمة الموظفين" placeholder="ابحث بالاسم أو الرقم الوظيفي أو القسم" autocomplete="off">
+                        </div>
+                        <div class="seg" role="group" aria-label="تصفية الحالة" id="dirStatusSeg">
+                            <button type="button" aria-pressed="true" data-status="all">الكل</button>
+                            <button type="button" aria-pressed="false" data-status="active">فعّال</button>
+                            <button type="button" aria-pressed="false" data-status="inactive">غير فعّال</button>
+                        </div>
+                        <select id="dirDeptFilter" class="select" aria-label="تصفية بالقسم"></select>
+                        <button type="button" class="btn btn-primary btn-sm" id="dirAddBtn">إضافة موظف</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data resp" id="dirTable">
+                            <caption class="sr-only">قائمة الموظفين</caption>
+                            <thead><tr>
+                                <th scope="col">الرقم الوظيفي</th>
+                                <th scope="col">الاسم</th>
+                                <th scope="col">القسم</th>
+                                <th scope="col">الدرجة</th>
+                                <th scope="col">الحالة</th>
+                                <th scope="col">الإجراء</th>
+                            </tr></thead>
+                            <tbody id="dirTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="panel dir-dept-panel">
+                    <div class="table-tools">
+                        <h3 class="section-title">الأقسام</h3>
+                        <button type="button" class="btn btn-secondary btn-sm" id="dirDeptAddBtn">إضافة قسم</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data resp" id="dirDeptTable">
+                            <caption class="sr-only">الأقسام</caption>
+                            <thead><tr>
+                                <th scope="col">القسم</th>
+                                <th scope="col">موظفون فعّالون</th>
+                                <th scope="col">الحالة</th>
+                                <th scope="col">الإجراء</th>
+                            </tr></thead>
+                            <tbody id="dirDeptBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -1481,6 +1549,7 @@ const PAGE_TITLES = {
     'dashboard-tab': 'نظرة عامة',
     'hr-tab': 'إصدار أمر إيفاد',
     'hrlist-tab': 'الموارد البشرية',
+    'directory-tab': 'قائمة الموظفين',
     'finance-tab': 'الشؤون المالية',
     'audit-tab': 'الرقابة والتدقيق'
 };
@@ -1492,7 +1561,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const ST_ = { FIN: 'بانتظار مصادقة المالية', AUD: 'بانتظار مصادقة الرقابة', PAY: 'بانتظار الصرف', DONE: 'تم الصرف', RET_HR: 'معاد إلى الموارد البشرية', RET_FIN: 'معاد إلى المالية', ADMIN: 'محال إلى المسؤول' };
 
 // نسخة الخادم (APP_VERSION في Code.gs) التي صُمّمت هذه الواجهة عليها: عند أي إصدار جديد يُحدَّث الثابتان معاً
-const EXPECTED_SERVER_VERSION = '2026-11-01-employee-directory';
+const EXPECTED_SERVER_VERSION = '2026-11-02-directory-admin';
 const STATE = {
     trips: [], employees: [], adjustments: [], log: [], rates: [], violationTypes: [], session: null, version: '',
     loaded: false, reqId: 0, period: 'all', chartMode: 'amount',
@@ -1860,6 +1929,7 @@ function switchTab(tabId, silent) {
     STATE.tab = tabId;
     if (tabId === 'dashboard-tab') STATE.dirty.dash = true;   // تُرسم الأعمدة بعرض الحاوية الفعلي في كل مرة تُفتح فيها اللوحة
     renderTab(tabId);
+    if (tabId === 'directory-tab') renderDirectoryTab();
     if (!silent) {
         window.scrollTo(0, 0);
         $('main').focus({ preventScroll: true });
@@ -2046,7 +2116,16 @@ function applyPatch(p) {
     STATE.byTrip = employeesByTrip(STATE.employees);
     renderAll();
 }
-function afterWrite(res) { if (res && res.patch) applyPatch(res.patch); else loadDashboardData(); }
+function afterWrite(res) {
+    if (res && res.patch) applyPatch(res.patch);
+    else if (res && res.directory) applyDirectory(res.directory);   // إدارة القائمة: تصل القائمة المحدَّثة، فلا حاجة لإعادة تحميل اللوحة
+    else loadDashboardData();
+}
+function applyDirectory(d) {
+    STATE.directory = d;
+    renderDirectoryIssues();
+    if (STATE.tab === 'directory-tab') renderDirectoryTab();
+}
 
 function loadDashboardData() {
     const id = ++STATE.reqId;
@@ -2093,6 +2172,7 @@ function applySession() {
     const s = STATE.session;
     $('whoAmI').textContent = s.email ? s.email : '';
     $('nav-hr-tab').classList.toggle('hidden', !can('hr'));
+    $('nav-directory-tab').classList.toggle('hidden', !can('hr'));
     const activeTab = document.querySelector('.tab-content:not(.hidden)');
     $('newTripBtn').classList.toggle('hidden', !can('hr') || (activeTab && activeTab.id === 'hr-tab'));
     $('submitBtn').disabled = !can('hr');
@@ -2110,6 +2190,7 @@ function renderAll() {
     try {
         STATE.dirty = { dash: true, hr: true, audit: true, finance: true };
         renderTab(STATE.tab);
+        if (STATE.tab === 'directory-tab') renderDirectoryTab();
         updateBadges();
         if (typeof refreshFormHints === 'function') refreshFormHints();
         hlSweep();
@@ -3436,12 +3517,12 @@ function setFormType(type) {
 // تطبيع يتجاهل الهمزات والياء والتاء المربوطة والمسافات: «عبدالله» تجد «عبد الله»
 const looseKey_ = s => nameKey_(s).replace(/\s+/g, '');
 // الموظفون الفعّالون المطابقون لما كُتب (اسم أو رقم وظيفي أو قسم)، الأقرب أولاً، دون من اختير في صف آخر
-function matchDirectory(directory, query, takenIds, limit) {
+function matchDirectory(directory, query, takenIds, limit, includeInactive) {
     const toks = nameKey_(query).split(' ').filter(Boolean), idq = normId_(query), lq = looseKey_(query);
     if (!toks.length) return [];
     const taken = takenIds || new Set(), out = [];
     ((directory && directory.employees) || []).forEach(e => {
-        if (!e.active || taken.has(normId_(e.id))) return;
+        if ((!e.active && !includeInactive) || taken.has(normId_(e.id))) return;
         const name = looseKey_(e.name), hay = name + '|' + looseKey_(e.dept);
         if (!toks.every(tk => hay.indexOf(tk) >= 0) && normId_(e.id).indexOf(idq) < 0) return;
         const at = name.indexOf(lq);
@@ -3526,6 +3607,112 @@ function renderDirectoryIssues() {
     box.classList.toggle('hidden', !issues.length);
     box.textContent = issues.length ? 'ملاحظات على قائمة الموظفين (' + issues.length + '): ' + issues.slice(0, 2).join(' — ') + (issues.length > 2 ? ' …' : '') : '';
     box.title = issues.join('\n');
+}
+// ——— تبويب إدارة قائمة الموظفين والأقسام (الموارد البشرية) ———
+const DIRF = { q: '', status: 'all', dept: '' };
+function renderDirectoryTab() {
+    const d = STATE.directory, tb = $('dirTableBody'), dtb = $('dirDeptBody');
+    if (!d) {
+        emptyRow(tb, 6, 'i-lock', 'قائمة الموظفين متاحة للموارد البشرية فقط.', '');
+        emptyRow(dtb, 4, 'i-lock', 'الأقسام متاحة للموارد البشرية فقط.', '');
+        return;
+    }
+    const nActive = d.employees.filter(e => e.active).length;
+    $('dirActiveCount').textContent = nActive; $('dirInactiveCount').textContent = d.employees.length - nActive;
+    const box = $('dirTabIssues');
+    box.classList.toggle('hidden', !d.issues.length);
+    box.textContent = d.issues.length ? 'ملاحظات على القائمة (' + d.issues.length + '): ' + d.issues.join(' — ') : '';
+    const sel = $('dirDeptFilter'); sel.innerHTML = '';
+    const allDepts = d.allDepartments || [];   // خادم أقدم لا يرسلها: لا ينكسر التبويب
+    [{ value: '', label: 'كل الأقسام' }].concat(allDepts.map(x => ({ value: x.name, label: x.name }))).forEach(o => { const op = el('option', '', o.label); op.value = o.value; sel.appendChild(op); });
+    sel.value = DIRF.dept;
+    const q = DIRF.q.trim();
+    let rows = q ? matchDirectory(d, q, null, 1e9, true) : d.employees.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    rows = rows.filter(e => (DIRF.status === 'all' || (DIRF.status === 'active') === e.active) && (!DIRF.dept || nameKey_(e.dept) === nameKey_(DIRF.dept)));
+    tb.innerHTML = '';
+    if (!rows.length) {
+        emptyRow(tb, 6, 'i-users', d.employees.length ? 'لا نتائج مطابقة.' : 'القائمة فارغة.',
+            d.employees.length ? 'غيّر البحث أو المرشحات.' : 'أضف الموظفين ليظهروا في اختيار الموفدين.', 'إضافة موظف', () => openEmployeeForm(null));
+    } else {
+        rows.forEach(e => {
+            const tr = document.createElement('tr');
+            tr.appendChild(makeCell(e.id, 'num', 'الرقم الوظيفي'));
+            tr.appendChild(makeCell(e.name, '', 'الاسم'));
+            tr.appendChild(makeCell(e.dept || '—', '', 'القسم'));
+            tr.appendChild(makeCell(e.grade || '—', '', 'الدرجة'));
+            const st = makeCell('', '', 'الحالة'); st.appendChild(el('span', 'tag' + (e.active ? '' : ' tag--muted'), e.active ? 'فعّال' : 'غير فعّال')); tr.appendChild(st);
+            const ac = makeCell('', '', 'الإجراء'), wrap = el('div', 'dir-actions');
+            const edit = el('button', 'btn btn-secondary btn-sm', 'تعديل'); edit.type = 'button'; edit.setAttribute('aria-label', 'تعديل ' + e.name);
+            edit.addEventListener('click', () => openEmployeeForm(e));
+            const tog = el('button', 'btn btn-light btn-sm', e.active ? 'تعطيل' : 'تفعيل'); tog.type = 'button'; tog.setAttribute('aria-label', (e.active ? 'تعطيل ' : 'تفعيل ') + e.name);
+            tog.addEventListener('click', () => toggleEmployee(e));
+            wrap.appendChild(edit); wrap.appendChild(tog); ac.appendChild(wrap); tr.appendChild(ac);
+            tb.appendChild(tr);
+        });
+    }
+    dtb.innerHTML = '';
+    if (!allDepts.length) emptyRow(dtb, 4, 'i-list', 'لا أقسام بعد.', 'أضف الأقسام ليُختار القسم منها عند إضافة موظف.', 'إضافة قسم', openDepartmentForm);
+    else allDepts.forEach(x => {
+        const n = d.employees.filter(e => e.active && nameKey_(e.dept) === nameKey_(x.name)).length;
+        const tr = document.createElement('tr');
+        tr.appendChild(makeCell(x.name, '', 'القسم'));
+        tr.appendChild(makeCell(n, 'num', 'موظفون فعّالون'));
+        const st = makeCell('', '', 'الحالة'); st.appendChild(el('span', 'tag' + (x.active ? '' : ' tag--muted'), x.active ? 'فعّال' : 'غير فعّال')); tr.appendChild(st);
+        const ac = makeCell('', '', 'الإجراء');
+        const tog = el('button', 'btn btn-light btn-sm', x.active ? 'تعطيل' : 'تفعيل'); tog.type = 'button'; tog.setAttribute('aria-label', (x.active ? 'تعطيل القسم ' : 'تفعيل القسم ') + x.name);
+        tog.addEventListener('click', () => toggleDepartment(x, n));
+        ac.appendChild(tog); tr.appendChild(ac);
+        dtb.appendChild(tr);
+    });
+}
+function openEmployeeForm(emp) {
+    const d = STATE.directory, edit = !!emp;
+    if (!d) return;
+    const depts = (d.allDepartments || []).filter(x => x.active).map(x => x.name);
+    if (edit && emp.dept && !depts.some(x => nameKey_(x) === nameKey_(emp.dept))) depts.push(emp.dept);
+    const deptField = depts.length
+        ? { key: 'dept', label: 'القسم', type: 'select', required: true, options: depts.map(x => ({ value: x, label: x })), value: edit ? emp.dept : undefined }
+        : { key: 'dept', label: 'القسم', type: 'text', required: true, maxLength: 100, value: edit ? emp.dept : '', hint: 'لا أقسام معرَّفة بعد؛ أضف الأقسام أولاً ليُختار القسم منها.' };
+    openConfirm({
+        title: edit ? 'تعديل بيانات موظف' : 'إضافة موظف',
+        message: edit ? 'تغيير الاسم أو القسم لا يغيّر الإيفادات المحفوظة (تحمل الاسم وقت حفظها).' : 'يظهر الموظف فوراً في اختيار الموفدين والسائقين.',
+        fields: [
+            { key: 'id', label: 'الرقم الوظيفي', type: 'text', required: true, maxLength: 40, value: edit ? emp.id : '', hint: edit ? 'الرقم هو هوية الموظف ولا يتغير. لتصحيح رقم خاطئ عطّل الموظف وأضف آخر.' : 'أحرف وأرقام و . _ - / فقط.' },
+            { key: 'name', label: 'الاسم', type: 'text', required: true, maxLength: 100, value: edit ? emp.name : '', hint: 'كما يُطبع في قوائم الصرف.' },
+            deptField,
+            { key: 'grade', label: 'الدرجة الوظيفية', type: 'select', required: false, options: [{ value: '', label: '— بلا درجة —' }].concat(GRADES_.map(g => ({ value: g, label: g }))), value: edit ? emp.grade : '', hint: 'تلزم لإيفاد الخارج.' },
+            { key: 'status', label: 'الحالة', type: 'select', required: true, options: [{ value: 'فعّال', label: 'فعّال' }, { value: 'غير فعّال', label: 'غير فعّال' }], value: edit ? (emp.active ? 'فعّال' : 'غير فعّال') : 'فعّال' }
+        ],
+        confirmLabel: edit ? 'حفظ التعديل' : 'إضافة',
+        onConfirm: v => serverAction('saveEmployee', [{ mode: edit ? 'edit' : 'add', id: v.id, name: v.name, dept: v.dept, grade: v.grade, status: v.status }], 'تعذر حفظ الموظف')
+    });
+    if (edit) $('cf_id').readOnly = true;
+}
+function toggleEmployee(emp) {
+    openConfirm({
+        title: emp.active ? 'تعطيل موظف' : 'تفعيل موظف',
+        message: emp.active ? 'لا يظهر في اختيار الموفدين ولا يُضاف لإيفاد جديد، ويبقى في إيفاداته القائمة.' : 'يعود للظهور في اختيار الموفدين والسائقين.',
+        details: [['الرقم الوظيفي', emp.id], ['الاسم', emp.name], ['القسم', emp.dept || '—']],
+        confirmLabel: emp.active ? 'تعطيل' : 'تفعيل', danger: emp.active,
+        onConfirm: () => serverAction('setEmployeeStatus', [emp.id, emp.active ? 'غير فعّال' : 'فعّال'], 'تعذر تغيير حالة الموظف')
+    });
+}
+function openDepartmentForm() {
+    openConfirm({
+        title: 'إضافة قسم', message: 'يظهر القسم في خيارات إضافة الموظفين وتعديلهم.',
+        fields: [{ key: 'name', label: 'اسم القسم', type: 'text', required: true, maxLength: 100 }],
+        confirmLabel: 'إضافة',
+        onConfirm: v => serverAction('saveDepartment', [v.name], 'تعذرت إضافة القسم')
+    });
+}
+function toggleDepartment(dep, activeCount) {
+    openConfirm({
+        title: dep.active ? 'تعطيل قسم' : 'تفعيل قسم',
+        message: dep.active ? (activeCount ? 'لا يمكن تعطيل قسم فيه موظفون فعّالون: انقلهم أو عطّلهم أولاً.' : 'لا يظهر القسم في خيارات الموظفين بعد التعطيل.') : 'يعود القسم للظهور في خيارات الموظفين.',
+        details: [['القسم', dep.name], ['موظفون فعّالون', String(activeCount)]],
+        confirmLabel: dep.active ? 'تعطيل' : 'تفعيل', danger: dep.active,
+        onConfirm: () => serverAction('setDepartmentStatus', [dep.name, dep.active ? 'غير فعّال' : 'فعّال'], 'تعذر تغيير حالة القسم')
+    });
 }
 function addEmployee(data) {
     data = data || {};
@@ -4139,6 +4326,16 @@ function initApp() {
     $('employeesList').addEventListener('input', ev => { if (ev.target.classList.contains('emp-name')) { refreshReceivers(); updatePreview(); } });
     $('stopsList').addEventListener('input', () => { updateStopsSum(); updatePreview(); });
     $('tripForm').addEventListener('submit', submitForm);
+    $('dirSearch').addEventListener('input', ev => { DIRF.q = ev.target.value; renderDirectoryTab(); });
+    $('dirStatusSeg').addEventListener('click', ev => {
+        const b = ev.target.closest('button'); if (!b) return;
+        DIRF.status = b.dataset.status;
+        document.querySelectorAll('#dirStatusSeg button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+        renderDirectoryTab();
+    });
+    $('dirDeptFilter').addEventListener('change', ev => { DIRF.dept = ev.target.value; renderDirectoryTab(); });
+    $('dirAddBtn').addEventListener('click', () => openEmployeeForm(null));
+    $('dirDeptAddBtn').addEventListener('click', openDepartmentForm);
     DRIVER_PICKER = attachDirectoryPicker($('driverName'), {
         takenIds: () => takenDirectoryIds($('driverName')),
         onBind: () => { refreshReceivers(); updatePreview(); },

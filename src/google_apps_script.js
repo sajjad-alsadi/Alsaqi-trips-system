@@ -4,7 +4,7 @@
 // ==========================================
 
 // رقم إصدار الخادم: تعرضه الواجهة للتنبيه إذا كانت النسخة المنشورة قديمة
-const APP_VERSION = '2026-11-01-employee-directory';
+const APP_VERSION = '2026-11-02-directory-admin';
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -404,7 +404,8 @@ function directory_() {
   if (DIR_MEMO_) return DIR_MEMO_;
   const issues = [], employees = [], byId = {}, exactIdx = {}, looseIdx = {};
   const deptRows = readRows_(sheet_(SHEETS.depts, DEPT_HEADERS)).rows.filter(function (r) { return String(r['القسم']).trim() !== ''; });
-  const departments = deptRows.filter(function (r) { return isActiveFlag_(r['الحالة']); }).map(function (r) { return String(r['القسم']).trim(); });
+  const allDepartments = deptRows.map(function (r) { return { name: String(r['القسم']).trim(), active: isActiveFlag_(r['الحالة']) }; });
+  const departments = allDepartments.filter(function (d) { return d.active; }).map(function (d) { return d.name; });
   const deptKeys = {};
   departments.forEach(function (d) { deptKeys[nameKey_(d)] = true; });
   readRows_(sheet_(SHEETS.dir, DIR_HEADERS)).rows.forEach(function (r) {
@@ -422,13 +423,17 @@ function directory_() {
     (exactIdx[nameKey_(name)] = exactIdx[nameKey_(name)] || []).push(e);
     (looseIdx[looseKey_(name)] = looseIdx[looseKey_(name)] || []).push(e);
   });
-  DIR_MEMO_ = { employees: employees, departments: departments, issues: issues, byId: byId, exactIdx: exactIdx, looseIdx: looseIdx };
+  Object.keys(looseIdx).forEach(function (k) {
+    const l = looseIdx[k];
+    if (l.length > 1) issues.push('الاسم "' + l[0].name + '" مكرر بين ' + l.map(function (x) { return x.id; }).join(' و') + ' (يلتبس عند المطابقة).');
+  });
+  DIR_MEMO_ = { employees: employees, departments: departments, allDepartments: allDepartments, issues: issues, byId: byId, exactIdx: exactIdx, looseIdx: looseIdx };
   return DIR_MEMO_;
 }
 // ما يُرسَل للواجهة (الموارد البشرية فقط)
 function publicDirectory_() {
   const d = directory_();
-  return { employees: d.employees, departments: d.departments, issues: d.issues };
+  return { employees: d.employees, departments: d.departments, allDepartments: d.allDepartments, issues: d.issues };
 }
 // موظف القائمة المطابق لاسم قديم مكتوب بالخط الحرة: مطابقة تامة (نفس المفتاح) ثم تقريبية (تجاهل المسافات)؛ الملتبس (أكثر من موظف) = لا شيء
 function dirEntryForName_(name, dir) {
@@ -502,6 +507,103 @@ function linkEmployeesToDirectory() {
     rsh.getRange(1, 1, report.length, report[0].length).setValues(report);
     appendLog_(u, '', 'ربط الموفدين بقائمة الموظفين', counts);
     return { success: true, counts: counts, message: 'رُبط ' + (counts.exact + counts.approx) + ' صفاً؛ للمراجعة اليدوية: ' + (counts.ambiguous + counts.none + counts.approx) + ' (شيت "' + SHEETS.linkReview + '").' };
+  });
+}
+
+// ——— إدارة القائمة من التطبيق (الموارد البشرية): بدل تحرير الشيت مباشرة، بتحقق وقفل وسجل ———
+const EMP_ID_RE_ = /^[A-Za-z0-9\u0660-\u0669][A-Za-z0-9\u0660-\u0669._\-\/]{0,39}$/;
+function statusLabel_(active) { return active ? 'فعّال' : 'غير فعّال'; }
+// بعد كل كتابة: تُعاد القائمة المحدَّثة للواجهة (دون إعادة تحميل اللوحة كلها)
+function dirResult_(message) { DIR_MEMO_ = null; return { success: true, message: message, directory: publicDirectory_() }; }
+function dirRow_(sh, id) {
+  const k = normId_(id);
+  const rows = readRows_(sh).rows.filter(function (r) { return normId_(String(r['الرقم الوظيفي'])) === k; });
+  return rows.length ? rows[0] : null;
+}
+// إضافة موظف (mode: add) أو تعديله (mode: edit). الرقم الوظيفي هو الهوية فلا يتغير بالتعديل؛ وتصحيح رقم خاطئ بتعطيل الموظف وإضافة آخر.
+function saveEmployee(data) {
+  return withLock_(function () {
+    const u = requireRole_('hr', 'إدارة قائمة الموظفين');
+    data = data || {};
+    const isNew = data.mode !== 'edit';
+    const id = String(data.id === undefined || data.id === null ? '' : data.id).trim();
+    const name = safeText_(String(data.name || '').replace(/\s+/g, ' ').trim(), 100);
+    const grade = String(data.grade || '').trim();
+    const active = isActiveFlag_(data.status);
+    if (!id) throw new Error('الرقم الوظيفي مطلوب.');
+    if (!EMP_ID_RE_.test(id)) throw new Error('الرقم الوظيفي: أحرف وأرقام و . _ - / فقط (حتى 40 خانة)، ويبدأ بحرف أو رقم.');
+    if (!name) throw new Error('الاسم مطلوب.');
+    let deptIn = String(data.dept || '').replace(/\s+/g, ' ').trim();
+    if (!deptIn) throw new Error('القسم مطلوب.');
+    if (grade && GRADES_.indexOf(grade) < 0) throw new Error('الدرجة "' + grade + '" غير معتمدة.');
+    const dir = directory_(), sh = sheet_(SHEETS.dir, DIR_HEADERS), cur = dirRow_(sh, id);
+    if (isNew && cur) throw new Error('الرقم الوظيفي "' + id + '" موجود في القائمة.');
+    if (!isNew && !cur) throw new Error('الموظف "' + id + '" غير موجود في القائمة.');
+    // القسم من الأقسام الفعّالة (بكتابتها المعتمدة)؛ ويجوز الإبقاء على قسم الموظف الحالي عند التعديل ولو عُطِّل
+    let dept = deptIn;
+    if (dir.allDepartments.length) {
+      const hit = dir.departments.filter(function (d) { return nameKey_(d) === nameKey_(deptIn); })[0];
+      if (hit) dept = hit;
+      else if (!(cur && nameKey_(String(cur['القسم'])) === nameKey_(deptIn))) throw new Error('القسم "' + deptIn + '" غير معتمد: اختره من قائمة الأقسام.');
+    }
+    // التطابق التقريبي (تجاهل المسافات): «عبدالله» و«عبد الله» اسم واحد عند المطابقة، فلا يجوز لشخصين
+    const same = (dir.looseIdx[looseKey_(name)] || []).filter(function (e) { return normId_(e.id) !== normId_(id); })[0];
+    if (same) throw new Error('الاسم مطابق لاسم الموظف ' + same.id + ' (' + same.name + '): فرّق بين الاسمين (مثلاً بإضافة اللقب).');
+    const next = { 'الاسم': name, 'القسم': dept, 'الدرجة': grade, 'الحالة': statusLabel_(active) };
+    if (isNew) {
+      appendRow_(sh, Object.assign({ 'الرقم الوظيفي': id }, next));
+      appendLog_(u, '', 'إضافة موظف', Object.assign({ 'الرقم الوظيفي': id }, next));
+      return dirResult_('أُضيف الموظف ' + name + ' (' + id + ').');
+    }
+    const diff = {};
+    Object.keys(next).forEach(function (k) {
+      const before = k === 'الحالة' ? statusLabel_(isActiveFlag_(cur[k])) : String(cur[k] === undefined || cur[k] === null ? '' : cur[k]).trim();
+      if (before !== next[k]) diff[k] = [before, next[k]];
+    });
+    updateRow_(sh, cur.__row, next);
+    appendLog_(u, '', 'تعديل موظف', Object.assign({ 'الرقم الوظيفي': id }, diff));
+    return dirResult_('عُدِّل الموظف ' + name + ' (' + id + ').');
+  });
+}
+// تعطيل موظف أو تفعيله (الحالة وحدها). المعطَّل لا يُضاف لإيفاد جديد ويبقى في القائم.
+function setEmployeeStatus(id, status) {
+  return withLock_(function () {
+    const u = requireRole_('hr', 'إدارة قائمة الموظفين');
+    const sh = sheet_(SHEETS.dir, DIR_HEADERS), cur = dirRow_(sh, String(id || '').trim());
+    if (!cur) throw new Error('الموظف "' + id + '" غير موجود في القائمة.');
+    const active = isActiveFlag_(status);
+    updateRow_(sh, cur.__row, { 'الحالة': statusLabel_(active) });
+    appendLog_(u, '', active ? 'تفعيل موظف' : 'تعطيل موظف', { 'الرقم الوظيفي': String(cur['الرقم الوظيفي']).trim(), 'الاسم': String(cur['الاسم']).trim() });
+    return dirResult_((active ? 'فُعِّل الموظف ' : 'عُطِّل الموظف ') + String(cur['الاسم']).trim() + '.');
+  });
+}
+function saveDepartment(name) {
+  return withLock_(function () {
+    const u = requireRole_('hr', 'إدارة الأقسام');
+    const nm = safeText_(String(name || '').replace(/\s+/g, ' ').trim(), 100);
+    if (!nm) throw new Error('اسم القسم مطلوب.');
+    const dir = directory_(), hit = dir.allDepartments.filter(function (d) { return nameKey_(d.name) === nameKey_(nm); })[0];
+    if (hit) throw new Error(hit.active ? 'القسم "' + hit.name + '" موجود.' : 'القسم "' + hit.name + '" موجود ومعطَّل: فعّله من قائمة الأقسام.');
+    appendRow_(sheet_(SHEETS.depts, DEPT_HEADERS), { 'القسم': nm, 'الحالة': 'فعّال' });
+    appendLog_(u, '', 'إضافة قسم', { 'القسم': nm });
+    return dirResult_('أُضيف القسم ' + nm + '.');
+  });
+}
+// تعطيل قسم يُمنع ما دام فيه موظفون فعّالون؛ والتفعيل بلا قيد
+function setDepartmentStatus(name, status) {
+  return withLock_(function () {
+    const u = requireRole_('hr', 'إدارة الأقسام');
+    const sh = sheet_(SHEETS.depts, DEPT_HEADERS), key = nameKey_(name);
+    const row = readRows_(sh).rows.filter(function (r) { return nameKey_(String(r['القسم'])) === key; })[0];
+    if (!row) throw new Error('القسم "' + name + '" غير موجود.');
+    const nm = String(row['القسم']).trim(), active = isActiveFlag_(status);
+    if (!active) {
+      const n = directory_().employees.filter(function (e) { return e.active && nameKey_(e.dept) === key; }).length;
+      if (n) throw new Error('لا يمكن تعطيل القسم "' + nm + '": فيه ' + n + ' موظف فعّال. انقلهم أو عطّلهم أولاً.');
+    }
+    updateRow_(sh, row.__row, { 'الحالة': statusLabel_(active) });
+    appendLog_(u, '', active ? 'تفعيل قسم' : 'تعطيل قسم', { 'القسم': nm });
+    return dirResult_((active ? 'فُعِّل القسم ' : 'عُطِّل القسم ') + nm + '.');
   });
 }
 

@@ -3,47 +3,8 @@
 // يغطي ما لا تغطيه اختبارات الدوال النقية: ربط الأحداث ونطاق المتغيرات وسلوك الإكمال التلقائي في DOM حقيقي.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 
-let jsdom = null;
-try { jsdom = require('jsdom'); } catch (e) { /* غير مثبَّت */ }
-const skip = jsdom ? false : 'jsdom غير مثبَّت (npm install)';
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'src', 'html_js_css.html'), 'utf8');
-
-const DIRECTORY = `STATE.directory = { employees: [
-    { id: 'E-100', name: 'أحمد كريم', dept: 'التدقيق', grade: 'الموظف', active: true },
-    { id: 'E-101', name: 'عبد الله علي', dept: 'المالية', grade: 'رئيس القسم', active: true },
-    { id: 'E-102', name: 'مريم حسن', dept: 'الموارد البشرية', grade: 'الموظف', active: false },
-    { id: 'D-200', name: 'سائق الشركة', dept: 'النقل', grade: '', active: true }],
-    departments: [], issues: ['صف 9: القسم "س" غير موجود في شيت الأقسام.'] };`;
-
-// صفحة جديدة بمحاكاة google.script.run (لا تستدعي شيئاً)، وقائمة موظفين محقونة
-function page(t) {
-    const errors = [];
-    const vc = new jsdom.VirtualConsole();
-    vc.on('jsdomError', e => errors.push((e.detail && (e.detail.stack || e.detail.message)) || e.message));
-    const dom = new jsdom.JSDOM(HTML, {
-        runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc, url: 'https://example.test/',
-        beforeParse(w) {
-            const run = new Proxy({}, { get: (t, k) => (k === 'withSuccessHandler' || k === 'withFailureHandler') ? () => run : () => {} });
-            w.google = { script: { run } };
-            w.matchMedia = () => ({ matches: false, addListener() {}, addEventListener() {} });
-            w.scrollTo = () => {};
-        }
-    });
-    const w = dom.window;
-    t.after(() => w.close());          // يوقف مؤقّتات الصفحة وإلا لا تنتهي العملية
-    const P = {
-        w, errors, ev: c => w.eval(c), $: id => w.document.getElementById(id),
-        type(input, text) { input.focus(); input.value = text; input.dispatchEvent(new w.Event('input', { bubbles: true })); },
-        pick(input, i) { input.parentNode.querySelectorAll('.dir-opt')[i || 0].dispatchEvent(new w.MouseEvent('mousedown', { bubbles: true, cancelable: true })); },
-        pop: input => input.parentNode.querySelector('.dir-pop'),
-        collect: () => JSON.parse(JSON.stringify(w.eval('collectFormInput()')))
-    };
-    P.ev(DIRECTORY);
-    return P;
-}
+const { page, skip } = require('./helpers/uiPage');
 
 test('الصفحة تُحمَّل وتُهيَّأ بلا أخطاء', { skip }, t => assert.deepEqual(page(t).errors, []));
 

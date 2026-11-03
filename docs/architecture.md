@@ -48,6 +48,7 @@
 | طباعة «قائمة مصاريف السفر» مع التفقيط | `buildPrintForm`، `printTripLists`، `amountInWords` |
 | التحديث بعد الكتابة | `applyPatch`، `afterWrite`، `loadDashboardData` |
 | كشف نسخة الخادم القديمة | `EXPECTED_SERVER_VERSION` في `loadDashboardData` |
+| تبويب «قائمة الموظفين» (للموارد البشرية): بحث وتصفية وإضافة وتعديل وتعطيل الموظفين والأقسام | `renderDirectoryTab`، `openEmployeeForm`، `toggleEmployee`، `openDepartmentForm`، `toggleDepartment`، `applyDirectory` (يستقبل `directory` من ردود الخادم عبر `afterWrite`) |
 | اختيار الموظف والسائق من قائمة الموارد البشرية (إكمال تلقائي) | `matchDirectory`، `attachDirectoryPicker`، `directoryEntry`، `takenDirectoryIds`، `renderDirectoryIssues`، `DRIVER_PICKER` |
 | تقادم السلف المتأخرة (للموارد البشرية) | `advanceAging`، `overdueAdvances`، `ADVANCE_SETTLE_DAYS`؛ التنبيه في `renderAlerts`، والمرشح `adv-overdue` في `listMatches`، والشارة في `updateBadges` |
 
