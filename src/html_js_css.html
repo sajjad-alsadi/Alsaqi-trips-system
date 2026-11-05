@@ -1561,7 +1561,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const ST_ = { FIN: 'بانتظار مصادقة المالية', AUD: 'بانتظار مصادقة الرقابة', PAY: 'بانتظار الصرف', DONE: 'تم الصرف', RET_HR: 'معاد إلى الموارد البشرية', RET_FIN: 'معاد إلى المالية', ADMIN: 'محال إلى المسؤول' };
 
 // نسخة الخادم (APP_VERSION في Code.gs) التي صُمّمت هذه الواجهة عليها: عند أي إصدار جديد يُحدَّث الثابتان معاً
-const EXPECTED_SERVER_VERSION = '2026-11-02-directory-admin';
+const EXPECTED_SERVER_VERSION = '2026-11-03-text-guard';
 const STATE = {
     trips: [], employees: [], adjustments: [], log: [], rates: [], violationTypes: [], session: null, version: '',
     loaded: false, reqId: 0, period: 'all', chartMode: 'amount',
@@ -2127,6 +2127,8 @@ function applyDirectory(d) {
     if (STATE.tab === 'directory-tab') renderDirectoryTab();
 }
 
+// خطأ Apps Script حين لا يملك المستخدم صلاحية على ملف الـ Sheet (النشر بهوية المستخدم يتطلبها): رسالة تشرح السبب بدل «تعذر تحميل البيانات»
+const NO_FILE_ACCESS_RE = /إذن للدخول إلى المستند|permission to access the requested document/i;
 function loadDashboardData() {
     const id = ++STATE.reqId;
     setRefreshBusy(true);
@@ -2146,8 +2148,8 @@ function loadDashboardData() {
         STATE.adjustments = data.adjustments || [];
         STATE.rates = data.rates || [];
         STATE.users = data.users || [];
-    STATE.directory = data.directory || null;
-    renderDirectoryIssues();
+        STATE.directory = data.directory || null;
+        renderDirectoryIssues();
         STATE.session = data.session;
         STATE.violationTypes = data.violationTypes || [];
         STATE.version = data.version || '';
@@ -2163,6 +2165,10 @@ function loadDashboardData() {
     }, function (err) {
         if (id !== STATE.reqId) return;
         setRefreshBusy(false);
+        if (NO_FILE_ACCESS_RE.test(String((err && err.message) || err))) {
+            showDenied({ hint: 'لا تملك صلاحية الوصول إلى ملف النظام (Google Sheet) بهذا الحساب. اطلب من مسؤول النظام مشاركته معك بصلاحية «محرر» ثم أعد المحاولة.' });
+            return;
+        }
         if (!STATE.loaded) showTablesMessage('تعذر تحميل البيانات.');
         showError('تعذر تحميل البيانات', err);
     });

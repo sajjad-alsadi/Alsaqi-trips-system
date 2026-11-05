@@ -4,7 +4,7 @@
 // ==========================================
 
 // رقم إصدار الخادم: تعرضه الواجهة للتنبيه إذا كانت النسخة المنشورة قديمة
-const APP_VERSION = '2026-11-02-directory-admin';
+const APP_VERSION = '2026-11-03-text-guard';
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -179,27 +179,35 @@ function updateRow_(sh, rowNumber, obj) {
   const headers = headersOf_(sh);
   const cur = sh.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
   headers.forEach(function (h, i) { if (Object.prototype.hasOwnProperty.call(obj, h)) cur[i] = obj[h]; });
-  sh.getRange(rowNumber, 1, 1, headers.length).setValues([cur]);
+  sh.getRange(rowNumber, 1, 1, headers.length).setValues([rowOut_(cur)]);
   ROWS_MEMO_.forEach(function (m) {   // يُحدَّث الصف المخزَّن في مكانه ليطابق الشيت
     if (m.sh === sh) m.table.rows.forEach(function (r) { if (r.__row === rowNumber) Object.keys(obj).forEach(function (k) { r[k] = obj[k]; }); });
   });
 }
 
+// القيمة كما تُكتب في الشيت: **كل نص يُحفظ نصاً**. رُصد في Sheets الفعلي (تجربة T1.3) أنه يحوّل «001» إلى 1 و«1/2» إلى تاريخ و«1e3» إلى 1000 و«TRUE» إلى منطقي،
+// ويحوّل «=…» إلى صيغة حيّة عند إعادة كتابة الصف، ولا يجدي تنسيق العمود كنص مع appendRow. البادئة ' علامة نص يستهلكها Sheets فلا تظهر عند القراءة.
+// الأرقام والمنطقي والتواريخ الفعلية (كائنات Date) والفارغ لا تُمسّ.
+function cellOut_(v) { return (typeof v === 'string' && v !== '') ? "'" + v : v; }
+function rowOut_(arr) { return arr.map(cellOut_); }
+
 function appendRow_(sh, obj) {
   dropRows_(sh);
   const headers = headersOf_(sh);
-  sh.appendRow(headers.map(function (h) { return Object.prototype.hasOwnProperty.call(obj, h) ? obj[h] : ''; }));
+  sh.appendRow(rowOut_(headers.map(function (h) { return Object.prototype.hasOwnProperty.call(obj, h) ? obj[h] : ''; })));
 }
 
-// نص حر من المستخدم: قص الطول ومنع تفسيره كصيغة في الشيت
+// تنظيف نص المستخدم (الطول والمسافات). حماية الصيغ والأرقام والتواريخ في cellOut_ عند الكتابة لا هنا
 function safeText_(text, max) {
-  const s = String(text === undefined || text === null ? '' : text).trim().slice(0, max || 500);
-  return /^[=+\-@]/.test(s) ? "'" + s : s;
+  return String(text === undefined || text === null ? '' : text).trim().slice(0, max || 500);
 }
 
 function nowLocalStr_() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm");
 }
+// تاريخ بلا وقت ← الصيغة الكاملة yyyy-MM-ddT00:00. النص يُحفظ نصاً الآن (cellOut_)، وكان Sheets يحوّله إلى Date فتعيده localStr_ بهذه الصيغة؛
+// والواجهة تحلّل «yyyy-MM-dd» وحدها كمنتصف ليل UTC فيظهر اليوم السابق لمن جهازه خلف UTC، فتُحفظ الصيغة الكاملة نفسها
+function fullLocal_(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s)) ? s + 'T00:00' : s; }
 function localStr_(v) {   // خلية تاريخ/نص إلى نص محلي موحّد
   return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm") : String(v === undefined || v === null ? '' : v);
 }
@@ -286,7 +294,7 @@ function ratesSheet_() {
     Object.keys(SEED_ALLOWANCE).forEach(function (k) { rows.push([RATE_TYPES_.allowance, k, SEED_ALLOWANCE[k], SEED_DATE]); });
     Object.keys(SEED_TRANSPORT).forEach(function (k) { rows.push([RATE_TYPES_.transport, k, SEED_TRANSPORT[k], SEED_DATE]); });
     Object.keys(SEED_ABROAD).forEach(function (k) { rows.push([RATE_TYPES_.abroad, k, SEED_ABROAD[k], SEED_DATE]); });
-    sh.getRange(2, 1, rows.length, 4).setValues(rows);
+    sh.getRange(2, 1, rows.length, 4).setValues(rows.map(rowOut_));
     return sh;
   }
   return sheet_(SHEETS.rates, RATE_HEADERS);
@@ -504,7 +512,7 @@ function linkEmployeesToDirectory() {
     });
     const rsh = sheet_(SHEETS.linkReview, report[0]);
     rsh.clearContents();
-    rsh.getRange(1, 1, report.length, report[0].length).setValues(report);
+    rsh.getRange(1, 1, report.length, report[0].length).setValues(report.map(rowOut_));
     appendLog_(u, '', 'ربط الموفدين بقائمة الموظفين', counts);
     return { success: true, counts: counts, message: 'رُبط ' + (counts.exact + counts.approx) + ' صفاً؛ للمراجعة اليدوية: ' + (counts.ambiguous + counts.none + counts.approx) + ' (شيت "' + SHEETS.linkReview + '").' };
   });
@@ -669,10 +677,10 @@ function tripFields_(p, u) {
   const inp = p.inp, calc = p.calc;
   const route = inp.type === 'خارجي' ? (inp.country || '') : calc.stops.map(function (s) { return s.gov + (calc.stops.length > 1 ? ' (' + s.days + ')' : ''); }).join('، ');
   return {
-    'رقم الإيفاد': inp.tripId, 'تاريخ الذهاب': inp.start, 'تاريخ العودة': inp.end, 'جهة الانطلاق': inp.type === 'خارجي' ? HOME_GOV_ : inp.origin,
+    'رقم الإيفاد': inp.tripId, 'تاريخ الذهاب': fullLocal_(inp.start), 'تاريخ العودة': fullLocal_(inp.end), 'جهة الانطلاق': inp.type === 'خارجي' ? HOME_GOV_ : inp.origin,
     'الوجهات': inp.type === 'خارجي' ? inp.country : calc.stops.map(function (s) { return s.gov; }).join('، '),
     'نوع العجلة': inp.type === 'خارجي' ? '' : inp.vehicle, 'إجمالي النقل': calc.totals.transport, 'أجور المبيت': calc.totals.hotel,
-    'نوع الإيفاد': inp.type, 'الدولة': inp.country, 'غرض الإيفاد': inp.purpose, 'تاريخ الأمر': inp.orderDate,
+    'نوع الإيفاد': inp.type, 'الدولة': inp.country, 'غرض الإيفاد': inp.purpose, 'تاريخ الأمر': fullLocal_(inp.orderDate),
     'عدد الأيام': calc.days, 'عدد الليالي': calc.nights, 'مسار المحافظات': route, 'نوع المبيت': inp.type === 'خارجي' ? '' : inp.hotelType,
     'إيفاد ثانٍ': p.second ? 'نعم' : '', 'يحتاج اعتماد النقل': calc.needsApproval ? 'نعم' : '',
     'المدخلات': JSON.stringify(inp), 'أساس الاحتساب': JSON.stringify(calc.basis)

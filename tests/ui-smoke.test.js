@@ -96,3 +96,21 @@ test('ملاحظات قائمة الموظفين تظهر تحت قسم المو
     assert.equal(P.$('dirIssues').classList.contains('hidden'), false);
     assert.match(P.$('dirIssues').textContent, /ملاحظات على قائمة الموظفين \(1\)/);
 });
+
+test('مستخدم بلا صلاحية على ملف النظام: شاشة رفض تشرح السبب بدل «تعذر تحميل البيانات»', { skip }, t => {
+    const P = page(t);
+    const fail = P.last('getDashboardData').fail;
+    fail(new Error('Exception: ليس لديك إذن للدخول إلى المستند المطلوب.'));
+    assert.equal(P.$('deniedScreen').classList.contains('hidden'), false);
+    assert.match(P.$('deniedText').textContent, /ملف النظام/);
+    assert.match(P.$('deniedText').textContent, /محرر/);
+});
+
+test('النص الإنجليزي لخطأ الإذن يُعامَل كذلك، وأي خطأ آخر يبقى خطأ تحميل عادياً', { skip }, t => {
+    const P = page(t);
+    P.last('getDashboardData').fail(new Error('Exception: You do not have permission to access the requested document.'));
+    assert.equal(P.$('deniedScreen').classList.contains('hidden'), false);
+    const Q = page(t);
+    Q.last('getDashboardData').fail(new Error('Exception: Service timed out'));
+    assert.equal(Q.$('deniedScreen').classList.contains('hidden'), true);
+});

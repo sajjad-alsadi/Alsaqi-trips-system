@@ -9,13 +9,13 @@ const read = name => fs.readFileSync(path.join(SRC, name), 'utf8');
 
 // الخادم: يُشغَّل الملف كاملاً داخل vm بخدمات Google فارغة (لا تُستدعى عند التحميل)،
 // ثم يُعاد كائن بالأسماء المطلوبة فقط. `globals` تستبدل خدمات Google بمحاكيات (انظر fakeSheets.js).
-function loadServer(names, globals) {
+function loadServer(names, globals, extraSource) {
     const ctx = vm.createContext(Object.assign({
         console,
         SpreadsheetApp: {}, LockService: {}, Session: {}, HtmlService: {},
         Utilities: {}, CacheService: {}, PropertiesService: {}, ContentService: {}
     }, globals));
-    return vm.runInContext(read('google_apps_script.js') + '\n;({' + names.join(',') + '})', ctx);
+    return vm.runInContext(read('google_apps_script.js') + '\n' + (extraSource || '') + '\n;({' + names.join(',') + '})', ctx);
 }
 
 // الواجهة: كتلة الجافاسكربت الرئيسية (آخر وسم script في الملف).
