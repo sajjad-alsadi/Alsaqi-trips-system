@@ -4,7 +4,7 @@
 // ==========================================
 
 // رقم إصدار الخادم: تعرضه الواجهة للتنبيه إذا كانت النسخة المنشورة قديمة
-const APP_VERSION = '2026-11-06-frame-default';
+const APP_VERSION = '2026-11-06-standalone-project';
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -67,8 +67,21 @@ function toTransferable(value) {
 
 // ذاكرة التنفيذ الواحد. كل نداء من الواجهة تنفيذ مستقل، فما يُحفظ هنا يسقط بنهايته (لا خطر قِدَم بين المستخدمين).
 // تُوفّر استدعاءات خدمة Sheets المتكررة (فحص الأعمدة وقراءة المستخدم)، وهي أبطأ ما في النظام.
-let SHEET_MEMO_ = {}, HEAD_MEMO_ = [], ROWS_MEMO_ = [], USER_MEMO_ = null, DIR_MEMO_ = null;
-function resetExecutionCache_() { SHEET_MEMO_ = {}; HEAD_MEMO_ = []; ROWS_MEMO_ = []; USER_MEMO_ = null; DIR_MEMO_ = null; }
+let SHEET_MEMO_ = {}, HEAD_MEMO_ = [], ROWS_MEMO_ = [], USER_MEMO_ = null, DIR_MEMO_ = null, SS_MEMO_ = null;
+function resetExecutionCache_() { SHEET_MEMO_ = {}; HEAD_MEMO_ = []; ROWS_MEMO_ = []; USER_MEMO_ = null; DIR_MEMO_ = null; SS_MEMO_ = null; }
+
+// الملف الذي يعمل عليه النظام (T2.8). المشروع مستقل يملكه مالك الملف، فلا يرى شيفرته من يملك صلاحية تحرير الملف وحده؛
+// ومعرّف الملف في خاصية السكربت SPREADSHEET_ID (إعدادات المشروع ← خصائص السكربت) لا في الشيفرة، فيبقى عند لصق نسخة جديدة.
+// الخاصية موجودة: يُفتح الملف بها، وأي فشل (معرّف خاطئ أو لا صلاحية) يظهر ولا يُتراجع صامتاً إلى ملف آخر.
+// الخاصية غير موجودة: يُستعمل الملف المرتبط بالمشروع (النشر القائم قبل الترحيل)؛ وفي مشروع مستقل لا ملف مرتبطاً فيُرفض بوضوح.
+// هذه الدالة الموضع الوحيد الذي يفتح الملف (يحرسه tests/standalone.test.js).
+function ss_() {
+  if (SS_MEMO_) return SS_MEMO_;
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  const ss = id ? SpreadsheetApp.openById(String(id).trim()) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('لم يُربط النظام بملف Sheet. أضف الخاصية SPREADSHEET_ID في إعدادات المشروع ← خصائص السكربت (انظر docs/deployment.md).');
+  return (SS_MEMO_ = ss);
+}
 // صفوف إيفاد واحد المقروءة مؤخراً: تُستعمل ثانيةً داخل التنفيذ نفسه، وتُحدَّث في مكانها عند الكتابة فلا تصير قديمة
 function dropRows_(sh) { ROWS_MEMO_ = ROWS_MEMO_.filter(function (m) { return m.sh !== sh; }); }
 function setHeaders_(sh, headers) {
@@ -93,7 +106,7 @@ function withLock_(fn) {
 // يعيد الشيت، وينشئه أو يُكمل أعمدته الناقصة (قراءة واحدة للترويسة وكتابة واحدة)
 function sheet_(name, headers) {
   if (SHEET_MEMO_[name]) return SHEET_MEMO_[name];
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = ss_();
   let sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
@@ -272,7 +285,7 @@ function setupFirstAdmin() {
   return withLock_(function () {
     const email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
     if (!email) throw new Error('تعذر تحديد بريدك. شغّل الدالة من محرر Apps Script بحسابك.');
-    const owner = SpreadsheetApp.getActiveSpreadsheet().getOwner();
+    const owner = ss_().getOwner();
     const ownerEmail = owner ? String(owner.getEmail() || '').trim().toLowerCase() : '';
     if (!ownerEmail || ownerEmail !== email) throw new Error('هذه التهيئة لمالك الملف فقط.');
     if (definedUsers_().length) throw new Error('شيت المستخدمين غير فارغ؛ أضف المستخدمين فيه مباشرة.');
@@ -287,7 +300,7 @@ function setupFirstAdmin() {
 // ------------------------------------------------------------------
 function ratesSheet_() {
   if (SHEET_MEMO_[SHEETS.rates]) return SHEET_MEMO_[SHEETS.rates];
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = ss_();
   if (!ss.getSheetByName(SHEETS.rates)) {
     const sh = sheet_(SHEETS.rates, RATE_HEADERS);
     const rows = [];
@@ -350,7 +363,7 @@ function getDashboardData() {
   const u = currentUser_();
   if (!u.ok) return { unauthorized: true, email: u.email, hint: u.hint, version: APP_VERSION };
   // قراءة الأسعار لا تحتاج قفلاً (كان يصطف كل المستخدمين خلف أي كاتب)؛ القفل فقط عند إنشاء الشيت لأول مرة لئلا يُزرع مرتين
-  const rates = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.rates) ? rateRows_() : withLock_(rateRows_);
+  const rates = ss_().getSheetByName(SHEETS.rates) ? rateRows_() : withLock_(rateRows_);
   const trips = outRows_(readRows_(sheet_(SHEETS.trips, TRIP_HEADERS)).rows);
   trips.forEach(function (t) { t['حالة الطلب'] = normStatus_(t['حالة الطلب']); HEAVY_TRIP_COLS_.forEach(function (c) { delete t[c]; }); });
   const live_ = {};   // الإيفادات المحذوفة منطقياً (قرار المسؤول) تبقى في الشيت ولا تُرسَل للواجهة

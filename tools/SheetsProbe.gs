@@ -85,7 +85,7 @@ function probeAppend_(ss, report) {
 
 function probeIdentity() {
   requireRole_('admin', 'فحص الهوية');
-  const ss = SpreadsheetApp.getActiveSpreadsheet(), owner = ss.getOwner();
+  const ss = ss_(), owner = ss.getOwner();
   const active = Session.getActiveUser().getEmail(), eff = Session.getEffectiveUser().getEmail();
   let editors = '(تعذّر)';
   try { editors = ss.getEditors().length; } catch (e) { /* لا شيء */ }
@@ -97,7 +97,7 @@ function probeIdentity() {
 }
 function measureDashboard() {
   requireRole_('admin', 'قياس الأداء');
-  const ss = SpreadsheetApp.getActiveSpreadsheet(), out = { runs: [], rows: {} };
+  const ss = ss_(), out = { runs: [], rows: {} };
   for (let i = 0; i < 3; i++) {
     resetExecutionCache_();
     const t0 = new Date().getTime(), d = getDashboardData(), ms = new Date().getTime() - t0;
@@ -113,7 +113,7 @@ function measureDashboard() {
 // نقطة الدخول: شغّلها من المحرر بحساب مسؤول (ويفضَّل المالك)
 function runSheetsProbe() {
   requireRole_('admin', 'تشغيل تجارب السلوك');
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = ss_();
   const report = [['الرمز', 'التجربة', 'المُدخَل', 'النتيجة بعد الإضافة', 'النتيجة بعد التحديث', 'الحكم']];
   [PROBE_TMP_, PROBE_TMP2_, PROBE_TMP3_, PROBE_TMP4_].forEach(function (n) { probeDrop_(ss, n); });
   resetExecutionCache_();

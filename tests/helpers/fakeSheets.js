@@ -61,7 +61,9 @@ class FakeSheet {
     deleteRows(start, n) { this.rows.splice(start - 1, n); this._max = Math.max(this.rows.length, (this._max || 1000) - n); }
 }
 
-// opts: { email: بريد المستخدم الحالي، owner: بريد مالك الملف (null = غير متاح)، sheets: { اسم: [[صف]...] } }
+// opts: { email: بريد المستخدم الحالي، owner: بريد مالك الملف (null = غير متاح)، sheets: { اسم: [[صف]...] },
+//         props: خصائص السكربت (مثل SPREADSHEET_ID)، standalone: true = مشروع مستقل (getActiveSpreadsheet تعيد null)،
+//         spreadsheetId: معرّف الملف الذي يفتحه openById (الافتراضي 'SS1') }
 function makeEnv(opts, names, extraSource) {
     opts = opts || {};
     const session = { email: opts.email === undefined ? '' : opts.email };
@@ -77,8 +79,18 @@ function makeEnv(opts, names, extraSource) {
         getSpreadsheetTimeZone: () => 'Asia/Baghdad',
         getSpreadsheetLocale: () => 'ar_IQ'
     };
+    const props = opts.props || {}, calls = { openById: 0, getActive: 0, ids: [] };
+    const realId = opts.spreadsheetId || 'SS1';
     const S = loadServer(names.concat(['Date']), {
-        SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+        SpreadsheetApp: {
+            getActiveSpreadsheet: () => { calls.getActive++; return opts.standalone ? null : ss; },
+            openById: id => {
+                calls.openById++; calls.ids.push(id);
+                if (id !== realId) throw new Error('Exception: Requested entity was not found.');
+                return ss;
+            }
+        },
+        PropertiesService: { getScriptProperties: () => ({ getProperty: k => (props[k] === undefined ? null : props[k]) }) },
         Session: { getActiveUser: () => ({ getEmail: () => session.email }), getEffectiveUser: () => ({ getEmail: () => session.email }), getScriptTimeZone: () => 'Asia/Baghdad' },
         LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
         // الشيفرة لا تستعمل غير الصيغة yyyy-MM-dd'T'HH:mm؛ يُكتفى بـ UTC في المحاكاة
@@ -86,7 +98,7 @@ function makeEnv(opts, names, extraSource) {
     }, extraSource);
     DateCtor = S.Date;
     return {
-        S, session, sheets,
+        S, session, sheets, calls,
         rows: n => (sheets[n] ? sheets[n].rows : null),
         // يضيف شيتاً بعد التحميل (حين تلزم ترويسات الخادم لبناء الصفوف)
         addSheet: (n, rows) => { const s = new FakeSheet(n); s.rows = rows.map(r => r.slice()); sheets[n] = s; return s; }
