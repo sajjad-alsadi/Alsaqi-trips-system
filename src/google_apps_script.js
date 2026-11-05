@@ -4,13 +4,13 @@
 // ==========================================
 
 // رقم إصدار الخادم: تعرضه الواجهة للتنبيه إذا كانت النسخة المنشورة قديمة
-const APP_VERSION = '2026-11-03-text-guard';
+const APP_VERSION = '2026-11-06-frame-default';
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle('نظام الساقي لإدارة الإيفادات')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
